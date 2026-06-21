@@ -426,6 +426,26 @@ public class WorkspaceManager {
     }
 
     /**
+     * Close a workspace: shutdown all its LSP servers and remove it from memory.
+     */
+    public CompletableFuture<Void> closeWorkspace(URI workspaceUri) {
+        Workspace workspace = workspaces.get(workspaceUri);
+        if (workspace == null) {
+            LOG.warnf("Workspace not found: %s", workspaceUri);
+            return CompletableFuture.completedFuture(null);
+        }
+
+        LOG.infof("Closing workspace: %s", workspaceUri);
+
+        // Shutdown all servers in this workspace
+        return workspace.shutdown().thenRun(() -> {
+            // Remove from active workspaces
+            workspaces.remove(workspaceUri);
+            LOG.infof("Workspace closed and removed from memory: %s", workspaceUri);
+        });
+    }
+
+    /**
      * Ensure a server is installed and added to the workspace, then start it.
      */
     public CompletableFuture<Void> ensureServerInstalled(String serverId, URI workspaceUri) {

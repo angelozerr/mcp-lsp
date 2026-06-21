@@ -19,6 +19,24 @@ public class LspServerControlResource {
     @Inject
     WorkspaceManager workspaceManager;
 
+    /**
+     * List all configured servers (independent of workspaces).
+     * Shows server configs even when no workspace/client is connected.
+     */
+    @GET
+    public java.util.List<com.redhat.mcp.languagetools.admin.dto.LspServerDTO> listAllServers() {
+        return workspaceManager.getServerConfigs().values().stream()
+                .map(config -> new com.redhat.mcp.languagetools.admin.dto.LspServerDTO(
+                    config.getId(),
+                    config.getName(),
+                    com.redhat.mcp.languagetools.lsp.ServerStatus.STOPPED,
+                    null,
+                    null,
+                    null
+                ))
+                .toList();
+    }
+
     @POST
     @Path("/{workspaceUri}/{serverId}/stop")
     public Response stopServer(@PathParam("workspaceUri") String workspaceUriParam,

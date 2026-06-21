@@ -6,7 +6,9 @@ public record LspServerDTO(
     String id,
     String name,
     ServerStatus status,
-    ExternalInstanceInfo externalInstance
+    ExternalInstanceInfo externalInstance,
+    Long pid,
+    String command
 ) {
     /**
      * Information about an external LSP server instance (launched by an IDE).

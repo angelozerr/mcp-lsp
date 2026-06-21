@@ -3,6 +3,7 @@ package com.redhat.mcp.languagetools.admin;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
 import java.net.URI;
@@ -41,6 +42,21 @@ public class AdminResource {
         return toDTO(uri, workspace);
     }
 
+    /**
+     * Close a workspace: shutdown all its LSP servers and remove from memory.
+     */
+    @DELETE
+    @Path("/workspaces/{uri}")
+    public Response closeWorkspace(@PathParam("uri") String uriParam) {
+        URI uri = URI.create(uriParam);
+
+        workspaceManager.closeWorkspace(uri).join();
+
+        return Response.ok()
+                .entity("{\"status\": \"closed\", \"uri\": \"" + uri + "\"}")
+                .build();
+    }
+
     private WorkspaceDTO toDTO(URI uri, Workspace workspace) {
         // Get all available server descriptors
         var allServerConfigs = workspaceManager.getServerConfigs();
@@ -49,6 +65,8 @@ public class AdminResource {
         List<LspServerDTO> servers = allServerConfigs.values().stream()
                 .map(config -> {
                     LspServerDTO.ExternalInstanceInfo externalInfo = null;
+                    Long pid = null;
+                    String command = null;
 
                     // Only show external instance info if server is already connected
                     var lspServer = workspace.getLspServer(config.getId());
@@ -63,13 +81,19 @@ public class AdminResource {
                                 currentInstance.clientVersion
                             );
                         }
+
+                        // Get PID and command from running server
+                        pid = lspServer.getPid();
+                        command = lspServer.getStartCommand();
                     }
 
                     return new LspServerDTO(
                         config.getId(),
                         config.getName(),
                         workspace.getServerStatus(config.getId()),
-                        externalInfo
+                        externalInfo,
+                        pid,
+                        command
                     );
                 })
                 .toList();

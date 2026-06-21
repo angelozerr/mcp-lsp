@@ -578,6 +578,23 @@ public class LspServer {
     }
 
     /**
+     * Get the process ID of the running server (if available).
+     */
+    public Long getPid() {
+        if (serverProcess != null && serverProcess.isAlive()) {
+            return serverProcess.pid();
+        }
+        return null;
+    }
+
+    /**
+     * Get the start command used to launch the server.
+     */
+    public String getStartCommand() {
+        return config.getCommandForCurrentOS();
+    }
+
+    /**
      * Check if the language server is ready to handle requests.
      * For most servers, this is true after initialize() completes (status == RUNNING).
      * For servers like JDT.LS, this is determined by specific notifications (e.g., language/status).

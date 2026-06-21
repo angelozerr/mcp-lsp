@@ -49,13 +49,35 @@
         }
 
         .sidebar-header {
-            padding: 1rem;
+            padding: 0;
             background: #252526;
             border-bottom: 1px solid #1e1e1e;
+        }
+
+        .tabs {
+            display: flex;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            text-align: center;
+            cursor: pointer;
             font-weight: 600;
             font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            background: #2a2a2a;
+        }
+
+        .tab.active {
+            border-bottom-color: #007acc;
+            color: #ffffff;
         }
 
         .workspace-item {
@@ -86,6 +108,21 @@
 
         .workspace-uri:hover {
             color: #ffffff;
+        }
+
+        .close-workspace-btn {
+            background: transparent;
+            border: none;
+            color: #858585;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0 0.5rem;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+
+        .close-workspace-btn:hover {
+            color: #ff4444;
         }
 
         .workspace-meta {
@@ -971,6 +1008,7 @@
             flex-direction: column;
             min-height: 0;
             overflow: hidden;
+            background: #1e1e1e;
         }
 
         .placeholder {
@@ -980,6 +1018,88 @@
             justify-content: center;
             color: #858585;
             font-size: 0.9rem;
+        }
+
+        /* Confirmation Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal {
+            background: #2d2d30;
+            border: 1px solid #3e3e42;
+            border-radius: 6px;
+            padding: 1.5rem;
+            max-width: 500px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #ffffff;
+        }
+
+        .modal-message {
+            color: #cccccc;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+        }
+
+        .modal-uri {
+            font-family: monospace;
+            background: #1e1e1e;
+            padding: 0.5rem;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+            word-break: break-all;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+
+        .modal-button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .modal-button-cancel {
+            background: #3e3e42;
+            color: #cccccc;
+        }
+
+        .modal-button-cancel:hover {
+            background: #4e4e52;
+        }
+
+        .modal-button-confirm {
+            background: #d73a49;
+            color: #ffffff;
+        }
+
+        .modal-button-confirm:hover {
+            background: #e14856;
         }
 
         .console-wrapper {
@@ -992,15 +1112,20 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Left: Workspaces -->
+        <!-- Left: Workspaces or All Servers -->
         <div class="workspaces-sidebar">
-            <div class="sidebar-header">Workspaces</div>
+            <div class="sidebar-header">
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('workspaces', this)">Workspaces</div>
+                    <div class="tab" onclick="switchTab('all-servers', this)">Servers</div>
+                </div>
+            </div>
             <div id="workspaces-list"></div>
+            <div id="all-servers-list" style="display: none;"></div>
         </div>
 
         <!-- Middle: LSP Servers -->
         <div class="servers-sidebar">
-            <div class="sidebar-header">LSP Servers</div>
             <div id="servers-list"></div>
         </div>
 
@@ -1036,6 +1161,147 @@
         let selectedServer = null;
         let eventSource = null;
         let traces = [];
+        let currentTab = 'workspaces';
+        let allServersLoaded = false;
+
+        function switchTab(tab, element) {
+            currentTab = tab;
+
+            // Update tab UI
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            if (element) {
+                element.classList.add('active');
+            }
+
+            // Show/hide content and adjust layout
+            const appContainer = document.querySelector('.app-container');
+            const serversColumn = document.querySelector('.servers-sidebar');
+            const consoleColumn = document.querySelector('.console-container');
+
+            if (tab === 'workspaces') {
+                document.getElementById('workspaces-list').style.display = 'block';
+                document.getElementById('all-servers-list').style.display = 'none';
+                serversColumn.style.display = 'block';
+                consoleColumn.style.display = 'flex';
+                // 3 columns layout: workspaces | servers | console
+                appContainer.style.gridTemplateColumns = '300px 300px 1fr';
+                consoleColumn.style.gridColumn = '3';
+            } else {
+                document.getElementById('workspaces-list').style.display = 'none';
+                document.getElementById('all-servers-list').style.display = 'block';
+                serversColumn.style.display = 'none';
+                // 2 columns layout: workspaces | console (skip middle)
+                appContainer.style.gridTemplateColumns = '300px 1fr';
+                consoleColumn.style.gridColumn = '2';
+                // Don't hide console if showing server details
+                if (!consoleColumn.querySelector('.details-panel')) {
+                    consoleColumn.style.display = 'none';
+                }
+                // Only load once
+                if (!allServersLoaded) {
+                    loadAllServers();
+                }
+            }
+        }
+
+        async function loadAllServers() {
+            try {
+                const response = await fetch('/api/admin/servers');
+                const servers = await response.json();
+
+                const container = document.getElementById('all-servers-list');
+                container.innerHTML = servers.map(server => {
+                    return `
+                        <div class="server-item" onclick="showServerDetails('${server.id}')">
+                            <div class="server-name">${server.name}</div>
+                            <div class="server-id">${server.id}</div>
+                        </div>
+                    `;
+                }).join('');
+
+                allServersLoaded = true;
+            } catch (error) {
+                console.error('Failed to load all servers:', error);
+            }
+        }
+
+        async function showServerDetails(serverId) {
+            console.log('showServerDetails called for:', serverId);
+            try {
+                // Show console column and adjust grid
+                const appContainer = document.querySelector('.app-container');
+                const consoleColumn = document.querySelector('.console-container');
+                console.log('Console column:', consoleColumn);
+                consoleColumn.style.display = 'flex';
+                // 2 columns: left sidebar (300px) + console (rest), console in position 2
+                appContainer.style.gridTemplateColumns = '300px 1fr';
+                consoleColumn.style.gridColumn = '2';
+
+                // Fetch server details
+                console.log('Fetching details for:', serverId);
+                const response = await fetch(`/api/admin/servers/${serverId}/details`);
+                console.log('Response status:', response.status);
+                const details = await response.json();
+                console.log('Details received:', details);
+
+                // Format command (can be string or object)
+                let commandStr = '';
+                if (details.command) {
+                    if (typeof details.command === 'string') {
+                        commandStr = details.command;
+                    } else if (typeof details.command === 'object') {
+                        commandStr = JSON.stringify(details.command, null, 2);
+                    }
+                }
+
+                // Show in console area
+                const html = `
+                    <div class="details-panel" style="padding: 2rem; color: #cccccc; overflow-y: auto;">
+                        <h2 style="margin-bottom: 1.5rem; color: #ffffff;">${details.name || details.id}</h2>
+
+                        <div style="margin-bottom: 1.5rem;">
+                            <h3 style="color: #007acc; font-size: 0.9rem; margin-bottom: 0.5rem;">SERVER ID</h3>
+                            <div style="font-family: monospace; background: #1e1e1e; padding: 0.5rem; border-radius: 4px;">${details.id}</div>
+                        </div>
+
+                        ${commandStr ? `
+                        <div style="margin-bottom: 1.5rem;">
+                            <h3 style="color: #007acc; font-size: 0.9rem; margin-bottom: 0.5rem;">COMMAND</h3>
+                            <pre style="font-family: monospace; background: #1e1e1e; padding: 0.5rem; border-radius: 4px; word-break: break-all; white-space: pre-wrap; margin: 0;">${commandStr}</pre>
+                        </div>
+                        ` : ''}
+
+                        ${details.documentSelector && details.documentSelector.length > 0 ? `
+                        <div style="margin-bottom: 1.5rem;">
+                            <h3 style="color: #007acc; font-size: 0.9rem; margin-bottom: 0.5rem;">DOCUMENT SELECTOR</h3>
+                            <div style="font-family: monospace; background: #1e1e1e; padding: 0.5rem; border-radius: 4px;">
+                                ${details.documentSelector.map(sel =>
+                                    `<div>${sel.language ? 'Language: ' + sel.language : ''} ${sel.scheme ? 'Scheme: ' + sel.scheme : ''} ${sel.pattern ? 'Pattern: ' + sel.pattern : ''}</div>`
+                                ).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <div style="margin-top: 2rem; padding: 1rem; background: #252526; border-left: 3px solid #007acc; border-radius: 4px;">
+                            <strong>Note:</strong> To run this server, open a workspace using an MCP client.
+                        </div>
+                    </div>
+                `;
+
+                const consoleArea = document.getElementById('console-area');
+                console.log('console-area element:', consoleArea);
+                console.log('HTML to insert:', html.substring(0, 200));
+                consoleArea.innerHTML = html;
+                console.log('innerHTML set, now checking:', consoleArea.innerHTML.substring(0, 100));
+            } catch (error) {
+                console.error('Failed to load server details:', error);
+                document.getElementById('console-area').innerHTML = `
+                    <div class="placeholder" style="color: #ff6b6b;">
+                        Failed to load server details
+                    </div>
+                `;
+            }
+        }
 
         // Load workspaces
         async function loadWorkspaces() {
@@ -1092,9 +1358,11 @@
                 const folderName = ws.rootUri.split('/').filter(p => p).pop() || ws.rootUri;
 
                 return `
-                <div class="workspace-item ${ws.rootUri === selectedWorkspace ? 'active' : ''}"
-                     onclick="selectWorkspace('${ws.rootUri}')">
-                    <div class="workspace-uri" title="${ws.rootUri}">📂 ${folderName}</div>
+                <div class="workspace-item ${ws.rootUri === selectedWorkspace ? 'active' : ''}">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="workspace-uri" title="${ws.rootUri}" onclick="selectWorkspace('${ws.rootUri}')" style="flex: 1;">📂 ${folderName}</div>
+                        <button class="close-workspace-btn" onclick="event.stopPropagation(); closeWorkspace('${ws.rootUri}')" title="Close workspace and stop all servers">×</button>
+                    </div>
                     ${ws.mcpClients && ws.mcpClients.length > 0 ? `
                         <div class="workspace-section">
                             <div class="workspace-section-title">AI Clients</div>
@@ -1122,6 +1390,50 @@
             renderWorkspaces();
             loadServers(uri);
             showPlaceholder();
+        }
+
+        function showConfirmModal(title, message, onConfirm) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').innerHTML = message;
+            document.getElementById('confirm-modal').classList.add('visible');
+
+            const confirmBtn = document.getElementById('modal-confirm-btn');
+            confirmBtn.onclick = () => {
+                hideConfirmModal();
+                onConfirm();
+            };
+        }
+
+        function hideConfirmModal() {
+            document.getElementById('confirm-modal').classList.remove('visible');
+        }
+
+        async function closeWorkspace(uri) {
+            const folderName = uri.split('/').filter(p => p).pop() || uri;
+
+            showConfirmModal(
+                'Close Workspace',
+                `Are you sure you want to close this workspace and stop all language servers?<div class="modal-uri">${folderName}</div>`,
+                async () => {
+                    try {
+                        const response = await fetch(`/api/admin/workspaces/${encodeURIComponent(uri)}`, {
+                            method: 'DELETE'
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Failed to close workspace');
+                        }
+
+                        // Reload workspaces list
+                        await loadWorkspaces();
+
+                        console.log('Workspace closed:', uri);
+                    } catch (error) {
+                        console.error('Failed to close workspace:', error);
+                        alert('Failed to close workspace: ' + error.message);
+                    }
+                }
+            );
         }
 
         async function loadServers(uri) {
@@ -1214,9 +1526,13 @@
                     `;
                 }
 
+                // Build tooltip with command if available
+                const tooltipText = server.command ? `Command: ${server.command}` : '';
+
                 return `
                     <div class="server-item ${serverClass} ${selectedServer?.id === server.id ? 'active' : ''}"
-                         onclick='selectServer(${JSON.stringify(server)})'>
+                         onclick='selectServer(${JSON.stringify(server)})'
+                         ${tooltipText ? `title="${tooltipText.replace(/"/g, '&quot;')}"` : ''}>
                         <div class="server-name">
                             <span class="server-source-icon" title="${sourceLabel}">${sourceIcon}</span>
                             ${server.name}
@@ -1225,6 +1541,7 @@
                         <div>
                             <span class="status-badge status-${server.status.toLowerCase()}">${formatStatusLabel(server.status, server.externalInstance)}</span>
                             ${ideInfo}
+                            ${server.pid ? `<span class="server-ide-info"><span title="Process ID">${server.pid}</span></span>` : ''}
                         </div>
                         <div class="server-actions">
                             ${actions}
@@ -1253,7 +1570,7 @@
             `;
         }
 
-        let currentTab = 'traces';
+        let currentConsoleTab = 'traces';
 
         async function loadConsole(server) {
             // Setup console UI with tabs
@@ -1265,14 +1582,11 @@
                             <span class="status-indicator" id="sse-status"></span>
                         </div>
                         <div class="console-tabs">
-                            <button class="tab-button active" onclick="switchTab('traces')">Traces</button>
-                            <button class="tab-button" onclick="switchTab('details')">Details</button>
-                            <button class="tab-button" onclick="switchTab('install')">Install</button>
+                            <button class="tab-button active" onclick="switchConsoleTab('traces')">Traces</button>
+                            <button class="tab-button" onclick="switchConsoleTab('details')">Details</button>
+                            <button class="tab-button" onclick="switchConsoleTab('install')">Install</button>
                         </div>
                         <div class="console-controls" id="traces-controls">
-                            <input type="text" id="trace-search" placeholder="Search traces..."
-                                   oninput="searchTraces(this.value)"
-                                   onkeydown="if(event.key==='Escape') this.value=''; searchTraces('');">
                             <button onclick="toggleAllTraces()" id="fold-button">Unfold All</button>
                             <button onclick="clearConsole()">Clear</button>
                         </div>
@@ -1457,8 +1771,8 @@
             return 'N/A';
         }
 
-        function switchTab(tabName) {
-            currentTab = tabName;
+        function switchConsoleTab(tabName) {
+            currentConsoleTab = tabName;
 
             // Update tab buttons
             document.querySelectorAll('.tab-button').forEach(btn => {
@@ -1968,6 +2282,11 @@
 
         // Auto-refresh
         function autoRefresh() {
+            // Don't auto-refresh when viewing "All Servers" tab
+            if (currentTab === 'all-servers') {
+                return;
+            }
+
             loadWorkspaces();
             if (selectedWorkspace) {
                 loadServers(selectedWorkspace);
@@ -2291,5 +2610,17 @@
         loadWorkspaces();
         setInterval(autoRefresh, 2000);
     </script>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-modal" class="modal-overlay" onclick="if(event.target === this) hideConfirmModal()">
+        <div class="modal">
+            <div class="modal-title" id="modal-title">Confirm Action</div>
+            <div class="modal-message" id="modal-message"></div>
+            <div class="modal-buttons">
+                <button class="modal-button modal-button-cancel" onclick="hideConfirmModal()">Cancel</button>
+                <button class="modal-button modal-button-confirm" id="modal-confirm-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
