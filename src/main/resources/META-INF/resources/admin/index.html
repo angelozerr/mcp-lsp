@@ -888,7 +888,7 @@
         }
 
         .trace-line {
-            margin-bottom: 0.5rem;
+            /* No margin between traces */
         }
 
         .trace-header {
@@ -992,6 +992,7 @@
         .trace-body.expanded {
             height: auto;
             opacity: 1;
+            padding: 0 0.25rem 0.25rem 0.25rem;
         }
 
         /* Version cachée pour la copie quand plié */
@@ -1160,7 +1161,7 @@
         let selectedWorkspace = null;
         let selectedServer = null;
         let eventSource = null;
-        let traces = [];
+        let tracesByServer = {}; // Store traces per server: {serverId: [...traces]}
         let currentTab = 'workspaces';
         let allServersLoaded = false;
 
@@ -1340,7 +1341,7 @@
                     </div>
                 `;
 
-                // Vider les serveurs et la console
+                // Clear servers and console
                 selectedWorkspace = null;
                 selectedServer = null;
                 document.getElementById('servers-list').innerHTML = '<div class="servers-placeholder">No workspaces selected</div>';
@@ -1484,7 +1485,7 @@
                                    (server.status === 'CONNECTED_TO_IDE' || server.status === 'CONNECTING_TO_IDE');
                 const serverClass = isExternal ? 'server-item-external' : 'server-item-managed';
 
-                // Afficher les actions selon le status
+                // Display actions based on status
                 let actions = '';
                 if (isExternal) {
                     // For IDE-connected servers: offer to disconnect
@@ -1550,7 +1551,7 @@
                 `;
             }).join('');
 
-            // Auto-sélectionner le premier serveur si aucun n'est sélectionné
+            // Auto-select first server if none selected
             if (!selectedServer && servers.length > 0) {
                 selectServer(servers[0]);
             }
@@ -1571,6 +1572,58 @@
         }
 
         let currentConsoleTab = 'traces';
+        let currentTraceLevel = 'verbose';
+        let currentServerId = null;
+
+        async function changeTraceLevel(level) {
+            if (!currentServerId) {
+                console.error('No server selected');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/config/servers/${currentServerId}/trace`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ trace: level })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save trace level');
+                }
+
+                currentTraceLevel = level;
+                console.log('Trace level changed to:', level, 'for server:', currentServerId);
+
+                // Show/hide fold button based on level
+                const foldButton = document.getElementById('fold-button');
+                if (foldButton) {
+                    foldButton.style.display = (level === 'messages') ? 'none' : 'inline-block';
+                }
+
+                // Re-render console with new filter
+                renderConsole();
+            } catch (error) {
+                console.error('Failed to change trace level:', error);
+                alert('Failed to save trace level: ' + error.message);
+            }
+        }
+
+        /**
+         * Filter traces based on trace level.
+         * - off: show nothing
+         * - messages: show all messages (header only, no body)
+         * - verbose: show everything (header + body)
+         */
+        function shouldShowTrace(trace, level) {
+            if (level === 'off') {
+                return false;
+            }
+
+            // Both 'messages' and 'verbose' show all traces
+            // The difference is in how they're displayed (header only vs header+body)
+            return true;
+        }
 
         async function loadConsole(server) {
             // Setup console UI with tabs
@@ -1587,6 +1640,14 @@
                             <button class="tab-button" onclick="switchConsoleTab('install')">Install</button>
                         </div>
                         <div class="console-controls" id="traces-controls">
+                            <label style="color: #cccccc; font-size: 0.85rem;">
+                                Trace Level:
+                                <select id="trace-level" onchange="changeTraceLevel(this.value)" style="margin-left: 0.5rem; background: #3e3e42; color: #cccccc; border: 1px solid #555; padding: 0.25rem 0.5rem; border-radius: 3px;">
+                                    <option value="off">Off</option>
+                                    <option value="messages">Messages</option>
+                                    <option value="verbose" selected>Verbose</option>
+                                </select>
+                            </label>
                             <button onclick="toggleAllTraces()" id="fold-button">Unfold All</button>
                             <button onclick="clearConsole()">Clear</button>
                         </div>
@@ -1626,12 +1687,37 @@
             `;
 
             currentTab = 'traces';
+            currentServerId = server.id;
+
+            // Load and initialize trace level selector with saved value
+            try {
+                const traceLevelResponse = await fetch(`/api/admin/config/servers/${server.id}/trace`);
+                const traceLevelData = await traceLevelResponse.json();
+                currentTraceLevel = traceLevelData.trace || 'verbose';
+
+                const traceLevelSelect = document.getElementById('trace-level');
+                if (traceLevelSelect) {
+                    traceLevelSelect.value = currentTraceLevel;
+                }
+
+                // Show/hide fold button based on level
+                const foldButton = document.getElementById('fold-button');
+                if (foldButton) {
+                    foldButton.style.display = (currentTraceLevel === 'messages') ? 'none' : 'inline-block';
+                }
+            } catch (error) {
+                console.error('Failed to load trace level:', error);
+            }
 
             // Load traces for specific workspace + server
             try {
                 const encodedWorkspace = encodeURIComponent(selectedWorkspace);
                 const response = await fetch(`/api/admin/traces/workspace/${encodedWorkspace}/server/${server.id}?limit=50`);
-                traces = await response.json();
+                const loadedTraces = await response.json();
+
+                // Store traces for this server
+                tracesByServer[server.id] = loadedTraces || [];
+
                 renderConsole();
                 connectSSE(selectedWorkspace, server.id);
             } catch (error) {
@@ -1869,14 +1955,19 @@
             eventSource.onmessage = (event) => {
                 const trace = JSON.parse(event.data);
 
-                // Only show traces for current workspace + server
+                // Store traces per server
+                if (!tracesByServer[trace.serverId]) {
+                    tracesByServer[trace.serverId] = [];
+                }
+                tracesByServer[trace.serverId].push(trace);
+
+                // Keep only last 200 traces per server
+                if (tracesByServer[trace.serverId].length > 200) {
+                    tracesByServer[trace.serverId] = tracesByServer[trace.serverId].slice(-200);
+                }
+
+                // Only render if this trace is for the currently selected server
                 if (trace.workspaceUri === workspaceUri && trace.serverId === serverId) {
-                    traces.push(trace);
-
-                    if (traces.length > 200) {
-                        traces = traces.slice(-200);
-                    }
-
                     renderConsole();
                 }
             };
@@ -1892,45 +1983,62 @@
             const container = document.getElementById('console-output');
             if (!container) return;
 
-            if (traces.length === 0) {
-                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #858585;">No LSP trace messages yet.</div>';
+            // Get traces for current server
+            const traces = tracesByServer[currentServerId] || [];
+
+            // Filter traces based on current level
+            const filteredTraces = traces.filter(trace => shouldShowTrace(trace, currentTraceLevel));
+
+            if (filteredTraces.length === 0) {
+                const message = currentTraceLevel === 'off'
+                    ? 'Traces are disabled (level: off)'
+                    : 'No LSP trace messages yet.';
+                container.innerHTML = `<div style="text-align: center; padding: 2rem; color: #858585;">${message}</div>`;
                 return;
             }
 
-            // Déterminer l'état par défaut basé sur le dernier message existant
-            let defaultFolded = true;
-            const lastBody = container.querySelector('.trace-body:last-child');
-            if (lastBody) {
-                defaultFolded = lastBody.classList.contains('collapsed');
-            }
-
-            container.innerHTML = traces.map((trace, index) => {
+            container.innerHTML = filteredTraces.map((trace, index) => {
                 const content = trace.jsonContent;
 
                 // Parse the trace: first line is header, rest is body
                 const lines = content.split('\n');
                 const headerLine = lines[0]; // [Trace - HH:mm:ss] ...
 
-                // Body is everything after the header line
-                const bodyLines = lines.slice(1);
-                const body = bodyLines.join('\n').trim();
+                // Messages mode: show only header line, no folding
+                if (currentTraceLevel === 'messages') {
+                    return `
+                        <div class="trace-line">
+                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(headerLine)}</div>
+                        </div>
+                    `;
+                }
 
-                // Utiliser l'état du dernier message
-                const foldState = defaultFolded ? 'collapsed' : 'expanded';
-                const toggleIcon = defaultFolded ? '▶' : '▼';
-                const headerClass = defaultFolded ? 'trace-header folded' : 'trace-header';
+                // Verbose mode: header + body folded by default
+                const body = lines.slice(1).join('\n').trim();
+                const hasBody = body.length > 0;
+
+                // If no body, display like messages mode (no toggle arrow)
+                if (!hasBody) {
+                    return `
+                        <div class="trace-line">
+                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(headerLine)}</div>
+                        </div>
+                    `;
+                }
+
                 const fullContent = headerLine + '\n' + body;
 
                 return `
-                    <div class="trace-line" onmouseenter="showTooltip(event, ${index}, ${defaultFolded})" onmouseleave="hideTooltip(${index})">
-                        <div class="${headerClass}" id="header-${index}"
+                    <div class="trace-line" onmouseenter="showTooltip(event, ${index}, true)" onmouseleave="hideTooltip(${index})">
+                        <div class="trace-header folded" id="header-${index}"
                              onmousedown="onHeaderMouseDown(${index})"
-                             onmouseup="onHeaderMouseUp(${index})">
-                            <span class="trace-toggle" id="toggle-${index}">${toggleIcon}</span>
-                            <span class="trace-header-text">${escapeHtml(headerLine)}</span>
+                             onmouseup="onHeaderMouseUp(${index})"
+                             style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem;">
+                            <span class="trace-toggle" id="toggle-${index}" style="margin-right: 0.5rem;">▶</span>
+                            <span class="trace-header-text" style="color: #cccccc;">${escapeHtml(headerLine)}</span>
                         </div>
-                        <div class="trace-body ${foldState}" id="body-${index}">${escapeHtml(body)}</div>
-                        ${defaultFolded ? `<div class="trace-tooltip" id="tooltip-${index}">${escapeHtml(fullContent)}</div>` : ''}
+                        <div class="trace-body collapsed" id="body-${index}" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(body)}</div>
+                        <div class="trace-tooltip" id="tooltip-${index}">${escapeHtml(fullContent)}</div>
                     </div>
                 `;
             }).join('');
@@ -1953,7 +2061,7 @@
             const tooltip = document.getElementById('tooltip-' + index);
             if (!tooltip) return;
 
-            // Positionner le tooltip près de la souris
+            // Position tooltip near mouse
             const x = event.clientX + 15;
             const y = event.clientY + 15;
 
@@ -2122,7 +2230,12 @@
         async function clearConsole() {
             try {
                 await fetch('/api/admin/traces', { method: 'DELETE' });
-                traces = [];
+
+                // Clear traces for current server only
+                if (currentServerId) {
+                    tracesByServer[currentServerId] = [];
+                }
+
                 renderConsole();
             } catch (error) {
                 console.error('Failed to clear traces:', error);
@@ -2296,6 +2409,7 @@
         // Search functionality
         let searchMatches = [];
         let currentMatchIndex = -1;
+        let currentSearchQuery = '';
 
         let fullTextSelected = false;
 
@@ -2356,6 +2470,9 @@
         }
 
         function copyFullConsoleContent() {
+            // Get traces for current server
+            const traces = tracesByServer[currentServerId] || [];
+
             // Construire le texte complet incluant les traces pliées
             let fullText = '';
             traces.forEach(trace => {
@@ -2401,48 +2518,91 @@
             }
         });
 
-        function performSearch(query) {
-            clearHighlights();
-            searchMatches = [];
-            currentMatchIndex = -1;
+        function highlightText(text, query) {
+            if (!query) return escapeHtml(text);
 
-            if (!query) {
-                updateSearchCount();
+            const escaped = escapeHtml(text);
+            const regex = new RegExp(escapeRegex(query), 'gi');
+            return escaped.replace(regex, match => `<span class="highlight">${match}</span>`);
+        }
+
+        function renderConsoleWithHighlights() {
+            const container = document.getElementById('console-output');
+            if (!container) return;
+
+            const traces = tracesByServer[currentServerId] || [];
+            const filteredTraces = traces.filter(trace => shouldShowTrace(trace, currentTraceLevel));
+
+            if (filteredTraces.length === 0) {
+                const message = currentTraceLevel === 'off'
+                    ? 'Traces are disabled (level: off)'
+                    : 'No LSP trace messages yet.';
+                container.innerHTML = `<div style="text-align: center; padding: 2rem; color: #858585;">${message}</div>`;
                 return;
             }
 
-            const consoleOutput = document.getElementById('console-output');
-            if (!consoleOutput) return;
+            container.innerHTML = filteredTraces.map((trace, index) => {
+                const content = trace.jsonContent;
+                const hasMatch = currentSearchQuery && content.toLowerCase().includes(currentSearchQuery.toLowerCase());
 
-            const traceContents = consoleOutput.querySelectorAll('.trace-body, .trace-header-text');
+                const lines = content.split('\n');
+                const headerLine = lines[0];
 
-            traceContents.forEach((content, traceIndex) => {
-                const text = content.textContent;
-                const regex = new RegExp(escapeRegex(query), 'gi');
-                let match;
-                let highlightedHtml = text;
-                let offset = 0;
-
-                while ((match = regex.exec(text)) !== null) {
-                    searchMatches.push({ traceIndex, element: content });
-
-                    const matchStart = match.index + offset;
-                    const matchEnd = matchStart + query.length;
-                    const before = highlightedHtml.substring(0, matchStart);
-                    const matchText = highlightedHtml.substring(matchStart, matchEnd);
-                    const after = highlightedHtml.substring(matchEnd);
-
-                    highlightedHtml = before + '<span class="highlight">' + matchText + '</span>' + after;
-                    offset += '<span class="highlight"></span>'.length;
+                // Messages mode
+                if (currentTraceLevel === 'messages') {
+                    return `
+                        <div class="trace-line">
+                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${highlightText(headerLine, currentSearchQuery)}</div>
+                        </div>
+                    `;
                 }
 
-                if (offset > 0) {
-                    content.innerHTML = highlightedHtml;
-                    // Auto-expand traces with matches
-                    if (content.classList.contains('collapsed')) {
-                        toggleTrace(traceIndex);
-                    }
+                // Verbose mode
+                const body = lines.slice(1).join('\n').trim();
+                const hasBody = body.length > 0;
+
+                if (!hasBody) {
+                    return `
+                        <div class="trace-line">
+                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${highlightText(headerLine, currentSearchQuery)}</div>
+                        </div>
+                    `;
                 }
+
+                const fullContent = headerLine + '\n' + body;
+
+                // Auto-expand if has search match
+                const foldState = hasMatch ? 'expanded' : 'collapsed';
+                const toggleIcon = hasMatch ? '▼' : '▶';
+                const headerClass = hasMatch ? 'trace-header' : 'trace-header folded';
+
+                return `
+                    <div class="trace-line" onmouseenter="showTooltip(event, ${index}, ${!hasMatch})" onmouseleave="hideTooltip(${index})">
+                        <div class="${headerClass}" id="header-${index}"
+                             onmousedown="onHeaderMouseDown(${index})"
+                             onmouseup="onHeaderMouseUp(${index})"
+                             style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem;">
+                            <span class="trace-toggle" id="toggle-${index}" style="margin-right: 0.5rem;">${toggleIcon}</span>
+                            <span class="trace-header-text" style="color: #cccccc;">${highlightText(headerLine, currentSearchQuery)}</span>
+                        </div>
+                        <div class="trace-body ${foldState}" id="body-${index}" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${highlightText(body, currentSearchQuery)}</div>
+                        <div class="trace-tooltip" id="tooltip-${index}">${escapeHtml(fullContent)}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function performSearch(query) {
+            currentSearchQuery = query;
+            searchMatches = [];
+            currentMatchIndex = -1;
+
+            // Re-render with highlighting
+            renderConsoleWithHighlights();
+
+            // Collect all highlights for navigation
+            document.querySelectorAll('.highlight').forEach(el => {
+                searchMatches.push({ element: el });
             });
 
             if (searchMatches.length > 0) {
@@ -2458,20 +2618,12 @@
         }
 
         function clearHighlights() {
-            const consoleOutput = document.getElementById('console-output');
-            if (!consoleOutput) return;
+            currentSearchQuery = '';
+            searchMatches = [];
+            currentMatchIndex = -1;
 
-            const highlights = consoleOutput.querySelectorAll('.highlight');
-            highlights.forEach(highlight => {
-                const parent = highlight.parentNode;
-                parent.replaceChild(document.createTextNode(highlight.textContent), highlight);
-                parent.normalize();
-            });
-
-            // Re-render to clean up
-            if (traces.length > 0) {
-                renderConsoleWithoutScroll();
-            }
+            // Re-render without highlights
+            renderConsoleWithoutScroll();
         }
 
         function highlightCurrentMatch() {
@@ -2516,30 +2668,57 @@
             const container = document.getElementById('console-output');
             if (!container) return;
 
-            if (traces.length === 0) {
-                container.innerHTML = '<div style="text-align: center; padding: 2rem; color: #858585;">No LSP trace messages yet.</div>';
+            // Get traces for current server
+            const traces = tracesByServer[currentServerId] || [];
+
+            // Filter traces based on current level
+            const filteredTraces = traces.filter(trace => shouldShowTrace(trace, currentTraceLevel));
+
+            if (filteredTraces.length === 0) {
+                const message = currentTraceLevel === 'off'
+                    ? 'Traces are disabled (level: off)'
+                    : 'No LSP trace messages yet.';
+                container.innerHTML = `<div style="text-align: center; padding: 2rem; color: #858585;">${message}</div>`;
                 return;
             }
 
-            container.innerHTML = traces.map((trace, index) => {
+            container.innerHTML = filteredTraces.map((trace, index) => {
                 const content = trace.jsonContent;
 
                 // Parse the trace: first line is header, rest is body
                 const lines = content.split('\n');
                 const headerLine = lines[0]; // [Trace - HH:mm:ss] ...
 
-                // Body is everything after the header line
+                // Messages mode: show only header line, no folding
+                if (currentTraceLevel === 'messages') {
+                    return `
+                        <div class="trace-line">
+                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(headerLine)}</div>
+                        </div>
+                    `;
+                }
+
+                // Verbose mode: header + body folded by default
                 const bodyLines = lines.slice(1);
                 const body = bodyLines.join('\n').trim();
+                const hasBody = body.length > 0;
 
-                // Par défaut: tout plié
+                // If no body, display like messages mode (no toggle arrow)
+                if (!hasBody) {
+                    return `
+                        <div class="trace-line">
+                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(headerLine)}</div>
+                        </div>
+                    `;
+                }
+
                 return `
                     <div class="trace-line">
-                        <div class="trace-header" onclick="toggleTrace(${index})">
-                            <span class="trace-toggle" id="toggle-${index}">▶</span>
-                            <span class="trace-header-text">${escapeHtml(headerLine)}</span>
+                        <div class="trace-header folded" onclick="toggleTrace(${index})" style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem;">
+                            <span class="trace-toggle" id="toggle-${index}" style="margin-right: 0.5rem;">▶</span>
+                            <span class="trace-header-text" style="color: #cccccc;">${escapeHtml(headerLine)}</span>
                         </div>
-                        <div class="trace-body collapsed" id="body-${index}">${escapeHtml(body)}</div>
+                        <div class="trace-body collapsed" id="body-${index}" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(body)}</div>
                     </div>
                 `;
             }).join('');

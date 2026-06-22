@@ -287,6 +287,9 @@ public class LspServer {
 
         params.setCapabilities(capabilities);
 
+        // Set trace level from global config
+        params.setTrace(getTraceLevelFromConfig());
+
         // Prepare initialization options (hook for subclasses to add server-specific options)
         Object initOptions = prepareInitializationOptions();
         if (initOptions != null) {
@@ -1035,5 +1038,40 @@ public class LspServer {
             return config.getInitializationOptions();
         }
         return null;
+    }
+
+    /**
+     * Get trace level from global config file (~/.mcp-lsp/config.json).
+     * Returns "off", "messages", or "verbose" (default).
+     */
+    private String getTraceLevelFromConfig() {
+        try {
+            Path configFile = Paths.get(System.getProperty("user.home"), ".mcp-lsp", "config.json");
+            if (!Files.exists(configFile)) {
+                return "verbose"; // Default
+            }
+
+            String json = Files.readString(configFile);
+            com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+
+            if (!root.has("servers")) {
+                return "verbose";
+            }
+
+            com.google.gson.JsonObject servers = root.getAsJsonObject("servers");
+            if (!servers.has(config.getId())) {
+                return "verbose";
+            }
+
+            com.google.gson.JsonObject serverConfig = servers.getAsJsonObject(config.getId());
+            if (!serverConfig.has("trace")) {
+                return "verbose";
+            }
+
+            return serverConfig.get("trace").getAsString();
+        } catch (Exception e) {
+            LOG.debugf("Failed to read trace level from config: %s", e.getMessage());
+            return "verbose"; // Default on error
+        }
     }
 }
