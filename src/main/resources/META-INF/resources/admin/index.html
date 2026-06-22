@@ -1148,15 +1148,6 @@
         </div>
     </div>
 
-    <!-- Modal -->
-    <div class="modal-overlay" id="modal-overlay">
-        <div class="modal">
-            <div class="modal-title" id="modal-title">Confirm</div>
-            <div class="modal-message" id="modal-message"></div>
-            <div class="modal-buttons" id="modal-buttons"></div>
-        </div>
-    </div>
-
     <script>
         let workspaces = [];
         let selectedWorkspace = null;
@@ -1440,9 +1431,21 @@
         }
 
         function showConfirmModal(title, message, onConfirm) {
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-message').innerHTML = message;
-            document.getElementById('confirm-modal').classList.add('visible');
+            console.log('showConfirmModal called', title);
+            const titleEl = document.getElementById('modal-title');
+            const messageEl = document.getElementById('modal-message');
+            const modalEl = document.getElementById('confirm-modal');
+
+            console.log('Elements found:', { titleEl, messageEl, modalEl });
+
+            if (!titleEl || !messageEl || !modalEl) {
+                console.error('Modal elements not found!');
+                return;
+            }
+
+            titleEl.textContent = title;
+            messageEl.innerHTML = message;
+            modalEl.classList.add('visible');
 
             const confirmBtn = document.getElementById('modal-confirm-btn');
             confirmBtn.onclick = () => {
@@ -1460,7 +1463,20 @@
 
             showConfirmModal(
                 'Close Workspace',
-                `Are you sure you want to close this workspace and stop all language servers?<div class="modal-uri">${folderName}</div>`,
+                `
+                    <div style="margin-bottom: 1rem; font-size: 1.05rem;"><strong>⚠️ This will shut down all LSP servers for this workspace</strong></div>
+                    <div style="margin-bottom: 0.75rem;">Specifically:</div>
+                    <ul style="margin: 0 0 1rem 1.5rem; text-align: left; line-height: 1.6;">
+                        <li><strong>Stop all running language servers</strong></li>
+                        <li>Disconnect any IDE connections</li>
+                        <li>Remove the workspace from memory</li>
+                        <li>Clear all cached data</li>
+                    </ul>
+                    <div style="margin-top: 1rem; padding: 0.75rem; background: rgba(0,122,204,0.1); border-left: 3px solid #007acc; border-radius: 3px;">
+                        <div><strong>Workspace:</strong> ${folderName}</div>
+                        <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #cccccc;">💡 The workspace will automatically reappear when an MCP client accesses it again.</div>
+                    </div>
+                `,
                 async () => {
                     try {
                         const response = await fetch(`/api/admin/workspaces/${encodeURIComponent(uri)}`, {
@@ -2822,15 +2838,18 @@
             ]);
         }
 
-        // Close modal on overlay click
-        document.getElementById('modal-overlay').addEventListener('click', (e) => {
-            if (e.target.id === 'modal-overlay') {
-                hideModal();
-                if (window.modalResolve) {
-                    window.modalResolve(false);
+        // Close modal on overlay click (if modal exists)
+        const modalOverlay = document.getElementById('modal-overlay');
+        if (modalOverlay) {
+            modalOverlay.addEventListener('click', (e) => {
+                if (e.target.id === 'modal-overlay') {
+                    hideModal();
+                    if (window.modalResolve) {
+                        window.modalResolve(false);
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // Initialize
         loadWorkspaces();
