@@ -1431,15 +1431,12 @@
         }
 
         function showConfirmModal(title, message, onConfirm) {
-            console.log('showConfirmModal called', title);
-            const titleEl = document.getElementById('modal-title');
-            const messageEl = document.getElementById('modal-message');
+            const titleEl = document.getElementById('confirm-modal-title');
+            const messageEl = document.getElementById('confirm-modal-message');
             const modalEl = document.getElementById('confirm-modal');
 
-            console.log('Elements found:', { titleEl, messageEl, modalEl });
-
             if (!titleEl || !messageEl || !modalEl) {
-                console.error('Modal elements not found!');
+                console.error('Confirm modal elements not found!');
                 return;
             }
 
@@ -2856,11 +2853,20 @@
         setInterval(autoRefresh, 2000);
     </script>
 
-    <!-- Confirmation Modal -->
+    <!-- Generic Modal (for confirmAction, showAlert) -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-title" id="modal-title"></div>
+            <div class="modal-message" id="modal-message"></div>
+            <div class="modal-buttons" id="modal-buttons"></div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal (for closeWorkspace) -->
     <div id="confirm-modal" class="modal-overlay" onclick="if(event.target === this) hideConfirmModal()">
         <div class="modal">
-            <div class="modal-title" id="modal-title">Confirm Action</div>
-            <div class="modal-message" id="modal-message"></div>
+            <div class="modal-title" id="confirm-modal-title">Confirm Action</div>
+            <div class="modal-message" id="confirm-modal-message"></div>
             <div class="modal-buttons">
                 <button class="modal-button modal-button-cancel" onclick="hideConfirmModal()">Cancel</button>
                 <button class="modal-button modal-button-confirm" id="modal-confirm-btn">Confirm</button>
