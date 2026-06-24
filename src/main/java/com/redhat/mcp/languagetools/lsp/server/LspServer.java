@@ -95,7 +95,11 @@ public class LspServer {
         ServerStatus oldStatus = this.status;
         this.status = newStatus;
 
+        LOG.infof("LspServer.setStatus: %s -> %s (callback registered: %s)",
+                oldStatus, newStatus, statusChangeCallback != null);
+
         if (statusChangeCallback != null && oldStatus != newStatus) {
+            LOG.infof("Calling status change callback for %s: %s -> %s", config.getId(), oldStatus, newStatus);
             try {
                 statusChangeCallback.accept(newStatus);
             } catch (Exception e) {
