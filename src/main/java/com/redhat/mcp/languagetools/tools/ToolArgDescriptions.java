@@ -21,7 +21,7 @@ public final class ToolArgDescriptions {
 
     // Position arguments
     public static final String POSITION_LINE = "Line number (0-based)";
-
     public static final String POSITION_CHARACTER = "Character position in the line (0-based)";
 
+    public static final String CANCELLATION = "Cancellation operation";
 }

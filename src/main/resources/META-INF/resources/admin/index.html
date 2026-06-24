@@ -1195,22 +1195,172 @@
         let selectedWorkspace = null;
         let selectedServer = null;
         let selectedAllServer = null; // Track selected server in "All Servers" tab
-        let eventSource = null;
         let tracesByServer = {}; // Store traces per server: {serverId: [...traces]}
         let currentTab = 'workspaces';
         let allServersLoaded = false;
-        // SSE removed for workspaces/clients to avoid HTTP/1.1 connection limits - using polling instead
+        let workspacesRendered = false; // Track if workspaces have been rendered at least once
 
-        // Polling intervals
-        let workspacesPollingInterval = null;
-        let mcpClientsPollingInterval = null;
+        // WebSocket connection (replaces SSE and polling)
+        let adminWebSocket = null;
+
+        /**
+         * Connect to admin WebSocket for real-time updates.
+         * Replaces SSE streams and polling intervals.
+         */
+        function connectAdminWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/api/admin/ws`;
+
+            console.log('Connecting to WebSocket:', wsUrl);
+            adminWebSocket = new WebSocket(wsUrl);
+
+            adminWebSocket.onopen = () => {
+                console.log('WebSocket connected');
+            };
+
+            adminWebSocket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            };
+
+            adminWebSocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            adminWebSocket.onclose = () => {
+                console.log('WebSocket closed, reconnecting in 3s...');
+                setTimeout(connectAdminWebSocket, 3000);
+            };
+        }
+
+        /**
+         * Route incoming WebSocket messages by type.
+         */
+        function handleWebSocketMessage(message) {
+            console.log('WebSocket message received:', message.type, message);
+            switch (message.type) {
+                case 'lsp-trace':
+                    handleLspTrace(message);
+                    break;
+                case 'mcp-trace':
+                    handleMcpTrace(message);
+                    break;
+                case 'workspaces-update':
+                    handleWorkspacesUpdate(message.workspaces);
+                    break;
+                case 'mcp-clients-update':
+                    handleMcpClientsUpdate(message.clients);
+                    break;
+                case 'server-status-changed':
+                    handleServerStatusChanged(message);
+                    break;
+                default:
+                    console.warn('Unknown WebSocket message type:', message.type);
+            }
+        }
+
+        /**
+         * Handle LSP trace message from WebSocket.
+         */
+        function handleLspTrace(trace) {
+            console.log('handleLspTrace called for server:', trace.serverId, 'current:', currentServerId);
+
+            // Store trace by server
+            if (!tracesByServer[trace.serverId]) {
+                tracesByServer[trace.serverId] = [];
+            }
+            tracesByServer[trace.serverId].push(trace);
+
+            console.log('Stored trace, total for', trace.serverId, ':', tracesByServer[trace.serverId].length);
+
+            // Keep only last 200 traces per server
+            if (tracesByServer[trace.serverId].length > 200) {
+                tracesByServer[trace.serverId] = tracesByServer[trace.serverId].slice(-200);
+            }
+
+            // Refresh console if this trace is for the currently selected server
+            if (trace.workspaceUri === selectedWorkspace && trace.serverId === currentServerId) {
+                console.log('Refreshing console for current server');
+                renderConsole();
+            }
+        }
+
+        /**
+         * Handle MCP trace message from WebSocket.
+         */
+        function handleMcpTrace(trace) {
+            const connectionId = trace.connectionId;
+            if (!mcpTracesByClient[connectionId]) {
+                mcpTracesByClient[connectionId] = [];
+            }
+            mcpTracesByClient[connectionId].push(trace);
+
+            // Keep only last 500 traces per client
+            if (mcpTracesByClient[connectionId].length > 500) {
+                mcpTracesByClient[connectionId].shift();
+            }
+
+            // Refresh MCP console if this trace is for the currently selected client
+            if (connectionId === selectedMcpClient) {
+                renderMcpConsole();
+            }
+        }
+
+        /**
+         * Handle workspaces update from WebSocket.
+         */
+        function handleWorkspacesUpdate(newWorkspaces) {
+            console.log('WebSocket workspaces update:', newWorkspaces);
+            // Update if data changed OR if this is the first render
+            if (!workspacesRendered || JSON.stringify(newWorkspaces) !== JSON.stringify(workspaces)) {
+                workspaces = newWorkspaces;
+                workspacesRendered = true;
+                console.log('Workspaces updated, rendering...');
+                renderWorkspaces();
+
+                // If a workspace was selected, update its details
+                if (selectedWorkspace) {
+                    console.log('Selected workspace:', selectedWorkspace);
+                    const workspace = workspaces.find(w => w.rootUri === selectedWorkspace);
+                    console.log('Found workspace:', workspace);
+                    if (workspace) {
+                        console.log('Rendering servers:', workspace.lspServers);
+                        renderServers(workspace.lspServers);
+                    } else {
+                        // Selected workspace no longer exists
+                        selectedWorkspace = null;
+                        document.getElementById('servers-list').innerHTML = '<div class="servers-placeholder">No workspaces selected</div>';
+                    }
+                } else if (workspaces.length > 0 && currentTab === 'workspaces') {
+                    // Auto-select first workspace on initial load
+                    console.log('Auto-selecting first workspace');
+                    selectWorkspace(workspaces[0].rootUri);
+                }
+            }
+        }
+
+        /**
+         * Handle MCP clients update from WebSocket.
+         */
+        function handleMcpClientsUpdate(newClients) {
+            // Only update if data actually changed
+            if (JSON.stringify(newClients) !== JSON.stringify(mcpClients)) {
+                mcpClients = newClients;
+                renderMcpClients();
+            }
+        }
+
+        /**
+         * Handle server status change from WebSocket.
+         */
+        function handleServerStatusChanged(event) {
+            console.log('Server status changed:', event);
+            // Status change is already included in workspaces-update broadcast
+            // This is just for logging/debugging
+        }
 
         function switchTab(tab, element) {
             currentTab = tab;
-
-            // Stop all polling when switching tabs
-            stopWorkspacesPolling();
-            stopMcpClientsPolling();
 
             // Update tab UI
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1224,10 +1374,6 @@
             const consoleColumn = document.querySelector('.console-container');
 
             if (tab === 'workspaces') {
-                // Restart workspaces polling
-                if (!workspacesPollingInterval) {
-                    setupWorkspacesPolling();
-                }
                 document.getElementById('workspaces-list').style.display = 'block';
                 document.getElementById('all-servers-list').style.display = 'none';
                 document.getElementById('mcp-traces-list').style.display = 'none';
@@ -1237,10 +1383,8 @@
                 appContainer.style.gridTemplateColumns = '300px 300px 1fr';
                 consoleColumn.style.gridColumn = '3';
 
-                // Refresh immediately when switching to this tab
-                loadWorkspaces();
-
                 // Refresh the view: reload servers list and console for selected workspace
+                // (workspace data comes via WebSocket)
                 if (selectedWorkspace) {
                     loadServers(selectedWorkspace);
                     if (selectedServer) {
@@ -1284,30 +1428,20 @@
                 appContainer.style.gridTemplateColumns = '300px 1fr';
                 consoleColumn.style.gridColumn = '2';
 
-                // Setup MCP traces SSE stream on first access
-                setupMcpTracesStream();
-
-                // Restart MCP clients polling
-                if (!mcpClientsPollingInterval) {
-                    setupMcpClientsPolling();
-                }
-
-                // Load MCP clients and auto-select
-                loadMcpClients().then(() => {
-                    // Auto-select first client or previously selected client
-                    if (mcpClients.length > 0) {
-                        if (selectedMcpClient && mcpClients.find(c => c.id === selectedMcpClient)) {
-                            // Re-select and refresh
-                            loadMcpConsole(selectedMcpClient);
-                        } else {
-                            // Select first client
-                            selectMcpClient(mcpClients[0].id);
-                        }
+                // MCP clients data comes via WebSocket
+                // Auto-select first client or previously selected client
+                if (mcpClients.length > 0) {
+                    if (selectedMcpClient && mcpClients.find(c => c.id === selectedMcpClient)) {
+                        // Re-select and refresh
+                        loadMcpConsole(selectedMcpClient);
                     } else {
-                        // No clients, show placeholder
-                        loadMcpTracesConsole();
+                        // Select first client
+                        selectMcpClient(mcpClients[0].id);
                     }
-                });
+                } else {
+                    // No clients, show placeholder
+                    loadMcpTracesConsole();
+                }
             }
         }
 
@@ -1435,25 +1569,6 @@
         }
 
         // Setup workspaces polling (SSE removed to avoid HTTP/1.1 connection limits)
-        function setupWorkspacesPolling() {
-            // Initial load
-            loadWorkspaces();
-
-            // Poll every 30 seconds (stopped when switching tabs)
-            workspacesPollingInterval = setInterval(() => {
-                loadWorkspaces();
-                if (selectedWorkspace) {
-                    loadServers(selectedWorkspace);
-                }
-            }, 30000);
-        }
-
-        function stopWorkspacesPolling() {
-            if (workspacesPollingInterval) {
-                clearInterval(workspacesPollingInterval);
-                workspacesPollingInterval = null;
-            }
-        }
 
         // Load workspaces (initial load only, SSE will keep it updated)
         async function loadWorkspaces() {
@@ -1527,9 +1642,9 @@
                 const folderName = ws.rootUri.split('/').filter(p => p).pop() || ws.rootUri;
 
                 return `
-                <div class="workspace-item ${ws.rootUri === selectedWorkspace ? 'active' : ''}">
+                <div class="workspace-item ${ws.rootUri === selectedWorkspace ? 'active' : ''}" onclick="selectWorkspace('${ws.rootUri}')">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div class="workspace-uri" title="${ws.rootUri}" onclick="selectWorkspace('${ws.rootUri}')" style="flex: 1;">📂 ${folderName}</div>
+                        <div class="workspace-uri" title="${ws.rootUri}" style="flex: 1;">📂 ${folderName}</div>
                         <button class="close-workspace-btn" onclick="event.stopPropagation(); closeWorkspace('${ws.rootUri}')" title="Close workspace and stop all servers">×</button>
                     </div>
                     ${ws.mcpClients && ws.mcpClients.length > 0 ? `
@@ -1561,17 +1676,31 @@
         }
 
         function selectWorkspace(uri) {
-            selectedWorkspace = uri;
-            selectedServer = null;
+            console.log('selectWorkspace called with:', uri);
+            console.log('Current workspaces:', workspaces);
 
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
+            // Only reset server selection if we're changing workspace
+            if (selectedWorkspace !== uri) {
+                selectedServer = null;
             }
 
+            selectedWorkspace = uri;
+
             renderWorkspaces();
-            loadServers(uri);
-            showPlaceholder();
+
+            // Find workspace in local data (already received via WebSocket)
+            const workspace = workspaces.find(w => w.rootUri === uri);
+            console.log('Found workspace in selectWorkspace:', workspace);
+            if (workspace) {
+                console.log('Rendering servers:', workspace.lspServers);
+                renderServers(workspace.lspServers);
+                // renderServers will auto-select a server and call selectServer
+                // which will load the console, so don't show placeholder here
+            } else {
+                console.log('Workspace not found, showing placeholder');
+                document.getElementById('servers-list').innerHTML = '<div class="servers-placeholder">No LSP servers</div>';
+                showPlaceholder();
+            }
         }
 
         function showConfirmModal(title, message, onConfirm) {
@@ -1641,19 +1770,19 @@
 
         let lastServersData = null;
 
-        async function loadServers(uri) {
-            try {
-                const response = await fetch('/api/admin/workspaces/' + encodeURIComponent(uri));
-                const workspace = await response.json();
-
+        function loadServers(uri) {
+            // Find workspace in local data (already received via WebSocket)
+            const workspace = workspaces.find(w => w.rootUri === uri);
+            if (workspace) {
                 // Only re-render if servers data actually changed
                 const newServersData = JSON.stringify(workspace.lspServers);
                 if (newServersData !== lastServersData) {
                     lastServersData = newServersData;
                     renderServers(workspace.lspServers);
                 }
-            } catch (error) {
-                console.error('Failed to load servers:', error);
+            } else {
+                console.warn('Workspace not found:', uri);
+                document.getElementById('servers-list').innerHTML = '<div class="servers-placeholder">Workspace not found</div>';
             }
         }
 
@@ -1683,6 +1812,12 @@
 
         function renderServers(servers) {
             const container = document.getElementById('servers-list');
+            console.log('renderServers - container:', container, 'servers:', servers);
+
+            if (!container) {
+                console.error('servers-list element not found!');
+                return;
+            }
 
             if (servers.length === 0) {
                 container.innerHTML = '<div class="servers-placeholder">No LSP servers</div>';
@@ -1761,17 +1896,38 @@
                 `;
             }).join('');
 
-            // Auto-select first RUNNING server if none selected, otherwise first server
+            // Auto-select server logic:
+            // 1. If a server is selected and still exists in the list, keep it selected
+            // 2. Otherwise, select first RUNNING server
+            // 3. Otherwise, select first server
+            if (selectedServer) {
+                const stillExists = servers.find(s => s.id === selectedServer.id);
+                if (!stillExists) {
+                    console.log('Selected server no longer exists, auto-selecting...');
+                    selectedServer = null;
+                } else {
+                    console.log('Keeping selected server:', selectedServer.id);
+                }
+            }
+
             if (!selectedServer && servers.length > 0) {
+                console.log('Auto-selecting server - selectedServer is null, servers:', servers);
                 const runningServer = servers.find(s => s.status === 'RUNNING');
-                selectServer(runningServer || servers[0]);
+                const serverToSelect = runningServer || servers[0];
+                console.log('Server to auto-select:', serverToSelect);
+                selectServer(serverToSelect);
             }
         }
 
         function selectServer(server) {
+            const wasAlreadySelected = selectedServer && selectedServer.id === server.id;
             selectedServer = server;
             renderServers(workspaces.find(w => w.rootUri === selectedWorkspace)?.lspServers || []);
-            loadConsole(server);
+
+            // Only reload console if switching to a different server
+            if (!wasAlreadySelected) {
+                loadConsole(server);
+            }
         }
 
         function showPlaceholder() {
@@ -1924,15 +2080,21 @@
             try {
                 const encodedWorkspace = encodeURIComponent(selectedWorkspace);
 
+                console.log('loadConsole - serverId:', server.id, 'existing traces:', tracesByServer[server.id]?.length || 0);
+
                 // Only load from API if we don't have traces for this server yet
                 if (!tracesByServer[server.id] || tracesByServer[server.id].length === 0) {
+                    console.log('Loading traces from API for server:', server.id);
                     const response = await fetch(`/api/admin/traces/workspace/${encodedWorkspace}/server/${server.id}?limit=50`);
                     const loadedTraces = await response.json();
                     tracesByServer[server.id] = loadedTraces || [];
+                    console.log('Loaded', loadedTraces.length, 'traces for', server.id);
+                } else {
+                    console.log('Using cached traces for', server.id);
                 }
 
                 renderConsole();
-                connectSSE(selectedWorkspace, server.id);
+                // WebSocket now handles real-time trace updates
             } catch (error) {
                 console.error('Failed to load traces:', error);
             }
@@ -2167,53 +2329,21 @@
             }
         }
 
-        function connectSSE(workspaceUri, serverId) {
-            if (eventSource) {
-                eventSource.close();
-            }
-
-            const statusIndicator = document.getElementById('sse-status');
-            if (!statusIndicator) return;
-
-            eventSource = new EventSource('/api/admin/traces/stream');
-
-            eventSource.onopen = () => {
-                statusIndicator.className = 'status-indicator connected';
-            };
-
-            eventSource.onmessage = (event) => {
-                const trace = JSON.parse(event.data);
-
-                // Store traces per server
-                if (!tracesByServer[trace.serverId]) {
-                    tracesByServer[trace.serverId] = [];
-                }
-                tracesByServer[trace.serverId].push(trace);
-
-                // Keep only last 200 traces per server
-                if (tracesByServer[trace.serverId].length > 200) {
-                    tracesByServer[trace.serverId] = tracesByServer[trace.serverId].slice(-200);
-                }
-
-                // Only render if this trace is for the currently selected server
-                if (trace.workspaceUri === workspaceUri && trace.serverId === serverId) {
-                    renderConsole();
-                }
-            };
-
-            eventSource.onerror = () => {
-                if (statusIndicator) {
-                    statusIndicator.className = 'status-indicator disconnected';
-                }
-            };
-        }
 
         function renderConsole() {
             const container = document.getElementById('console-output');
             if (!container) return;
 
+            console.log('renderConsole - currentServerId:', currentServerId);
+            console.log('tracesByServer keys:', Object.keys(tracesByServer));
+            console.log('mcpTracesByClient keys:', Object.keys(mcpTracesByClient));
+
             // Get traces for current server
             const traces = tracesByServer[currentServerId] || [];
+            console.log('Traces for', currentServerId, ':', traces.length);
+            if (traces.length > 0) {
+                console.log('First trace:', traces[0]);
+            }
 
             // Filter traces based on current level
             const filteredTraces = traces.filter(trace => shouldShowTrace(trace, currentTraceLevel));
@@ -3024,30 +3154,12 @@
 
         let mcpTraces = [];
         let mcpTraceLevel = 'verbose';
-        let mcpSseConnection = null;
         let mcpClients = [];
         let mcpAllFolded = true;
         let selectedMcpClient = null;
         let mcpTracesByClient = {}; // Store traces per client: {connectionId: [...traces]}
-        let mcpTracesStreamStarted = false;
+        let mcpTracesLoaded = false; // Track if MCP traces have been loaded
 
-        // Setup MCP clients stream via SSE (with fallback to polling)
-        function setupMcpClientsPolling() {
-            // Initial load
-            loadMcpClients();
-
-            // Poll every 30 seconds (stopped when switching tabs)
-            mcpClientsPollingInterval = setInterval(() => {
-                loadMcpClients();
-            }, 30000);
-        }
-
-        function stopMcpClientsPolling() {
-            if (mcpClientsPollingInterval) {
-                clearInterval(mcpClientsPollingInterval);
-                mcpClientsPollingInterval = null;
-            }
-        }
 
         // Load MCP clients with polling
         async function loadMcpClients() {
@@ -3124,85 +3236,67 @@
                     </div>
                 `;
             }).join('');
+
+            // Auto-select first client if none selected and clients exist
+            // BUT only if we're on the MCP tab
+            if (currentTab === 'mcp-traces') {
+                if (!selectedMcpClient && mcpClients.length > 0) {
+                    selectMcpClient(mcpClients[0].id);
+                } else if (selectedMcpClient) {
+                    // Verify selected client still exists
+                    const stillExists = mcpClients.find(c => c.id === selectedMcpClient);
+                    if (!stillExists) {
+                        // Selected client disconnected, select first available or show placeholder
+                        if (mcpClients.length > 0) {
+                            selectMcpClient(mcpClients[0].id);
+                        } else {
+                            selectedMcpClient = null;
+                            loadMcpTracesConsole();
+                        }
+                    }
+                }
+            }
         }
 
-        function selectMcpClient(clientId) {
+        async function selectMcpClient(clientId) {
             selectedMcpClient = clientId;
             renderMcpClients();
+
+            // Load initial traces if not already loaded
+            await loadInitialMcpTraces();
+
             loadMcpConsole(clientId);
         }
 
         /**
-         * Setup SSE stream for MCP traces (call once at startup).
+         * Load initial MCP traces from backend (called once when accessing MCP tab).
          */
-        function setupMcpTracesStream() {
-            if (mcpTracesStreamStarted) {
-                console.log('MCP traces stream already started, skipping');
-                return; // Already started
-            }
-            console.log('Setting up MCP traces SSE stream...');
-            mcpTracesStreamStarted = true;
+        async function loadInitialMcpTraces() {
+            if (mcpTracesLoaded) return;
+            mcpTracesLoaded = true;
 
-            // Load current trace level
-            fetch('/api/admin/config/mcp/trace')
-                .then(response => response.json())
-                .then(data => {
-                    mcpTraceLevel = data.trace || 'verbose';
-                })
-                .catch(e => {
-                    console.error('Failed to load MCP trace level:', e);
-                    mcpTraceLevel = 'verbose';
-                });
+            try {
+                const allTraces = await fetch('/api/admin/mcp-traces?limit=500').then(r => r.json());
 
-            // Load ALL MCP traces (we'll filter by client later)
-            fetch('/api/admin/mcp-traces?limit=500')
-                .then(response => response.json())
-                .then(allTraces => {
-                    // Organize traces by connectionId (client)
-                    mcpTracesByClient = {};
-                    allTraces.forEach(trace => {
-                        const connectionId = trace.connectionId;
-                        if (!mcpTracesByClient[connectionId]) {
-                            mcpTracesByClient[connectionId] = [];
-                        }
-                        mcpTracesByClient[connectionId].push(trace);
-                    });
-                })
-                .catch(e => {
-                    console.error('Failed to load MCP traces:', e);
-                    mcpTracesByClient = {};
-                });
-
-            // Setup SSE for real-time traces
-            if (mcpSseConnection) {
-                mcpSseConnection.close();
-            }
-
-            mcpSseConnection = new EventSource('/api/admin/mcp-traces/stream');
-            mcpSseConnection.onmessage = (event) => {
-                try {
-                    const trace = JSON.parse(event.data);
+                // Organize traces by connectionId (client)
+                mcpTracesByClient = {};
+                allTraces.forEach(trace => {
                     const connectionId = trace.connectionId;
-
-                    // Add to the appropriate client's trace list
                     if (!mcpTracesByClient[connectionId]) {
                         mcpTracesByClient[connectionId] = [];
                     }
                     mcpTracesByClient[connectionId].push(trace);
+                });
 
-                    // Keep only last 500 traces per client
-                    if (mcpTracesByClient[connectionId].length > 500) {
-                        mcpTracesByClient[connectionId].shift();
-                    }
+                console.log('Loaded initial MCP traces:', Object.keys(mcpTracesByClient).length, 'clients');
 
-                    // Re-render if this is the selected client
-                    if (connectionId === selectedMcpClient) {
-                        renderMcpConsole();
-                    }
-                } catch (e) {
-                    console.error('Failed to parse MCP trace:', e);
+                // Re-render console if a client is selected
+                if (selectedMcpClient) {
+                    renderMcpConsole();
                 }
-            };
+            } catch (e) {
+                console.error('Failed to load initial MCP traces:', e);
+            }
         }
 
         async function loadMcpTracesConsole() {
@@ -3497,9 +3591,8 @@
             }
         }
 
-        // Initialize
-        setupWorkspacesPolling(); // Workspaces is the default tab, start polling immediately
-        // MCP polling will start when user switches to MCP tab
+        // Initialize WebSocket connection (replaces all SSE and polling)
+        connectAdminWebSocket();
     </script>
 
     <!-- Generic Modal (for confirmAction, showAlert) -->

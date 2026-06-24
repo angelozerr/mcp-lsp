@@ -115,6 +115,8 @@ public class WorkspaceManager {
 
             // Register callback for LSP server status changes
             ws.setServerStatusChangeCallback(event -> {
+                LOG.infof("WorkspaceManager: Firing LSP server status change event: %s/%s - %s -> %s",
+                        event.workspaceUri(), event.serverId(), event.oldStatus(), event.newStatus());
                 lspServerStatusChangeEvent.fire(event);
             });
 

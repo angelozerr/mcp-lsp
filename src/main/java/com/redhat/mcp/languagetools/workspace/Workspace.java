@@ -177,6 +177,19 @@ public class Workspace {
                     info.config, rootUri, workspaceDataDir, info.serverHome, traceCollector, allServerConfigs
                 );
                 newServer.setWorkspaceConfiguration(configuration);
+
+                // Register status change callback
+                newServer.setStatusChangeCallback(newStatus -> {
+                    if (statusChangeCallback != null) {
+                        statusChangeCallback.accept(new LspServerStatusChangeEvent(
+                            rootUri,
+                            info.config.getId(),
+                            newServer.getStatus(),
+                            newStatus
+                        ));
+                    }
+                });
+
                 lspServers.put(serverId, newServer);
 
                 // Start and initialize (will detect IDE instance)
@@ -216,6 +229,19 @@ public class Workspace {
                     info.config, rootUri, workspaceDataDir, info.serverHome, traceCollector, allServerConfigs
                 );
                 newServer.setWorkspaceConfiguration(configuration);
+
+                // Register status change callback
+                newServer.setStatusChangeCallback(newStatus -> {
+                    if (statusChangeCallback != null) {
+                        statusChangeCallback.accept(new LspServerStatusChangeEvent(
+                            rootUri,
+                            info.config.getId(),
+                            newServer.getStatus(),
+                            newStatus
+                        ));
+                    }
+                });
+
                 lspServers.put(serverId, newServer);
 
                 // Start MCP-managed only (skip IDE instance detection)

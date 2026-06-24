@@ -14,6 +14,8 @@ package com.redhat.mcp.languagetools.lsp.tools;
 import com.redhat.mcp.languagetools.language.LanguageRegistry;
 import com.redhat.mcp.languagetools.lsp.client.LspCapability;
 import com.redhat.mcp.languagetools.lsp.server.LspServerResolver;
+import com.redhat.mcp.languagetools.mcp.McpCancellationSupport;
+import io.quarkiverse.mcp.server.Cancellation;
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -44,19 +46,20 @@ public class ReferencesTools {
     LspServerResolver serverResolver;
 
     @Inject
-    WorkspaceManager workspaceManager;
+    LanguageRegistry languageRegistry;
 
     @Inject
-    LanguageRegistry languageRegistry;
+    McpCancellationSupport cancellationSupport;
 
     @Tool(description = "Find all references to a symbol at a specific position in a file. " +
                         "Returns all locations where the symbol is used across the workspace. " +
                         "Example: findReferences(cwd='/home/user/project', fileUri='file:///home/user/project/src/Main.java', line=10, character=5)")
-    public String findReferences(
+    public CompletableFuture<String> findReferences(
             @ToolArg(description = ToolArgDescriptions.CWD) String cwd,
             @ToolArg(description = ToolArgDescriptions.FILE_URI) String fileUri,
             @ToolArg(description = ToolArgDescriptions.POSITION_LINE) int line,
-            @ToolArg(description = ToolArgDescriptions.POSITION_CHARACTER) int character) {
+            @ToolArg(description = ToolArgDescriptions.POSITION_CHARACTER) int character,
+            @ToolArg(description = ToolArgDescriptions.CANCELLATION) Cancellation cancellation) {
         // Create language document (detects language once)
         var document = languageRegistry.createDocument(fileUri);
 
@@ -89,6 +92,11 @@ public class ReferencesTools {
                                 return null;
                             }))
                     .toList();
+
+            // Register futures for automatic cancellation
+            if (cancellation != null) {
+                cancellationSupport.registerAll(cancellation, futures);
+            }
 
             // Wait for all to complete and merge results
             return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
@@ -138,6 +146,6 @@ public class ReferencesTools {
         }).exceptionally(ex -> {
             LOG.error("Failed to find references", ex);
             return "Failed to find references: " + ex.getMessage();
-        }).join();
+        });
     }
 }
