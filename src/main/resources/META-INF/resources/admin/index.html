@@ -1198,6 +1198,7 @@
         let tracesByServer = {}; // Store traces per server: {serverId: [...traces]}
         let currentTab = 'workspaces';
         let allServersLoaded = false;
+        let workspacesRendered = false; // Track if workspaces have been rendered at least once
 
         // WebSocket connection (replaces SSE and polling)
         let adminWebSocket = null;
@@ -1262,11 +1263,15 @@
          * Handle LSP trace message from WebSocket.
          */
         function handleLspTrace(trace) {
+            console.log('handleLspTrace called for server:', trace.serverId, 'current:', currentServerId);
+
             // Store trace by server
             if (!tracesByServer[trace.serverId]) {
                 tracesByServer[trace.serverId] = [];
             }
             tracesByServer[trace.serverId].push(trace);
+
+            console.log('Stored trace, total for', trace.serverId, ':', tracesByServer[trace.serverId].length);
 
             // Keep only last 200 traces per server
             if (tracesByServer[trace.serverId].length > 200) {
@@ -1275,6 +1280,7 @@
 
             // Refresh console if this trace is for the currently selected server
             if (trace.workspaceUri === selectedWorkspace && trace.serverId === currentServerId) {
+                console.log('Refreshing console for current server');
                 renderConsole();
             }
         }
@@ -1305,9 +1311,10 @@
          */
         function handleWorkspacesUpdate(newWorkspaces) {
             console.log('WebSocket workspaces update:', newWorkspaces);
-            // Only update if data actually changed (avoid unnecessary re-renders)
-            if (JSON.stringify(newWorkspaces) !== JSON.stringify(workspaces)) {
+            // Update if data changed OR if this is the first render
+            if (!workspacesRendered || JSON.stringify(newWorkspaces) !== JSON.stringify(workspaces)) {
                 workspaces = newWorkspaces;
+                workspacesRendered = true;
                 console.log('Workspaces updated, rendering...');
                 renderWorkspaces();
 
@@ -1913,9 +1920,14 @@
         }
 
         function selectServer(server) {
+            const wasAlreadySelected = selectedServer && selectedServer.id === server.id;
             selectedServer = server;
             renderServers(workspaces.find(w => w.rootUri === selectedWorkspace)?.lspServers || []);
-            loadConsole(server);
+
+            // Only reload console if switching to a different server
+            if (!wasAlreadySelected) {
+                loadConsole(server);
+            }
         }
 
         function showPlaceholder() {
@@ -2068,11 +2080,17 @@
             try {
                 const encodedWorkspace = encodeURIComponent(selectedWorkspace);
 
+                console.log('loadConsole - serverId:', server.id, 'existing traces:', tracesByServer[server.id]?.length || 0);
+
                 // Only load from API if we don't have traces for this server yet
                 if (!tracesByServer[server.id] || tracesByServer[server.id].length === 0) {
+                    console.log('Loading traces from API for server:', server.id);
                     const response = await fetch(`/api/admin/traces/workspace/${encodedWorkspace}/server/${server.id}?limit=50`);
                     const loadedTraces = await response.json();
                     tracesByServer[server.id] = loadedTraces || [];
+                    console.log('Loaded', loadedTraces.length, 'traces for', server.id);
+                } else {
+                    console.log('Using cached traces for', server.id);
                 }
 
                 renderConsole();
@@ -2316,8 +2334,16 @@
             const container = document.getElementById('console-output');
             if (!container) return;
 
+            console.log('renderConsole - currentServerId:', currentServerId);
+            console.log('tracesByServer keys:', Object.keys(tracesByServer));
+            console.log('mcpTracesByClient keys:', Object.keys(mcpTracesByClient));
+
             // Get traces for current server
             const traces = tracesByServer[currentServerId] || [];
+            console.log('Traces for', currentServerId, ':', traces.length);
+            if (traces.length > 0) {
+                console.log('First trace:', traces[0]);
+            }
 
             // Filter traces based on current level
             const filteredTraces = traces.filter(trace => shouldShowTrace(trace, currentTraceLevel));
@@ -3132,6 +3158,7 @@
         let mcpAllFolded = true;
         let selectedMcpClient = null;
         let mcpTracesByClient = {}; // Store traces per client: {connectionId: [...traces]}
+        let mcpTracesLoaded = false; // Track if MCP traces have been loaded
 
 
         // Load MCP clients with polling
@@ -3209,14 +3236,68 @@
                     </div>
                 `;
             }).join('');
+
+            // Auto-select first client if none selected and clients exist
+            // BUT only if we're on the MCP tab
+            if (currentTab === 'mcp-traces') {
+                if (!selectedMcpClient && mcpClients.length > 0) {
+                    selectMcpClient(mcpClients[0].id);
+                } else if (selectedMcpClient) {
+                    // Verify selected client still exists
+                    const stillExists = mcpClients.find(c => c.id === selectedMcpClient);
+                    if (!stillExists) {
+                        // Selected client disconnected, select first available or show placeholder
+                        if (mcpClients.length > 0) {
+                            selectMcpClient(mcpClients[0].id);
+                        } else {
+                            selectedMcpClient = null;
+                            loadMcpTracesConsole();
+                        }
+                    }
+                }
+            }
         }
 
-        function selectMcpClient(clientId) {
+        async function selectMcpClient(clientId) {
             selectedMcpClient = clientId;
             renderMcpClients();
+
+            // Load initial traces if not already loaded
+            await loadInitialMcpTraces();
+
             loadMcpConsole(clientId);
         }
 
+        /**
+         * Load initial MCP traces from backend (called once when accessing MCP tab).
+         */
+        async function loadInitialMcpTraces() {
+            if (mcpTracesLoaded) return;
+            mcpTracesLoaded = true;
+
+            try {
+                const allTraces = await fetch('/api/admin/mcp-traces?limit=500').then(r => r.json());
+
+                // Organize traces by connectionId (client)
+                mcpTracesByClient = {};
+                allTraces.forEach(trace => {
+                    const connectionId = trace.connectionId;
+                    if (!mcpTracesByClient[connectionId]) {
+                        mcpTracesByClient[connectionId] = [];
+                    }
+                    mcpTracesByClient[connectionId].push(trace);
+                });
+
+                console.log('Loaded initial MCP traces:', Object.keys(mcpTracesByClient).length, 'clients');
+
+                // Re-render console if a client is selected
+                if (selectedMcpClient) {
+                    renderMcpConsole();
+                }
+            } catch (e) {
+                console.error('Failed to load initial MCP traces:', e);
+            }
+        }
 
         async function loadMcpTracesConsole() {
             const consoleArea = document.getElementById('console-area');
