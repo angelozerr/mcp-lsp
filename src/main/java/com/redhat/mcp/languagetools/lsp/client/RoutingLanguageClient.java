@@ -11,6 +11,7 @@ import org.eclipse.lsp4j.jsonrpc.Endpoint;
 import org.eclipse.lsp4j.jsonrpc.ResponseErrorException;
 import org.eclipse.lsp4j.jsonrpc.messages.ResponseError;
 import org.eclipse.lsp4j.jsonrpc.messages.ResponseErrorCode;
+import org.eclipse.lsp4j.jsonrpc.services.JsonDelegate;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.jboss.logging.Logger;
 
@@ -18,66 +19,68 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Generic LSP client implementation with support for capability registration and bindRequest routing.
- * Implements Endpoint to handle bindRequest routing declared in server.json.
+ * Language client wrapper that adds bindRequest routing support.
+ * Implements both LanguageClient (for standard methods) and Endpoint (for bindRequest routing).
+ * Uses @JsonDelegate to expose delegate's @JsonNotification and @JsonRequest methods.
+ *
+ * GenericEndpoint will:
+ * 1. Scan @JsonDelegate for methods like language/status → called with correct type
+ * 2. For unmatched requests, call our Endpoint.request() → routes bindRequest
  */
-public class GenericLanguageClient implements LanguageClient, Endpoint {
+public class RoutingLanguageClient implements LanguageClient, Endpoint {
 
-    private static final Logger LOG = Logger.getLogger(GenericLanguageClient.class);
+    private static final Logger LOG = Logger.getLogger(RoutingLanguageClient.class);
 
-    protected final LspServer lspServer;
+    private final LanguageClient delegate;
+    private final LspServer lspServer;
 
-    public GenericLanguageClient(LspServer lspServer) {
+    public RoutingLanguageClient(LanguageClient delegate, LspServer lspServer) {
+        this.delegate = delegate;
         this.lspServer = lspServer;
     }
 
+    /**
+     * Return the real client type for MessageJsonHandler to scan.
+     * This ensures language/status gets registered as StatusReport in supportedMethods.
+     */
+    public LanguageClient getRealClient() {
+        return delegate;
+    }
+
+    // ===== LanguageClient delegation =====
+
     @Override
     public void telemetryEvent(Object object) {
-        // Ignore telemetry for now
+        delegate.telemetryEvent(object);
     }
 
     @Override
     public void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
-        LOG.debugf("Diagnostics published for: %s", diagnostics.getUri());
-        lspServer.getDiagnosticsCache().put(diagnostics.getUri(), diagnostics.getDiagnostics());
+        delegate.publishDiagnostics(diagnostics);
     }
 
     @Override
     public void showMessage(MessageParams messageParams) {
-        LOG.infof("%s message: %s", lspServer.getConfig().getId(), messageParams.getMessage());
+        delegate.showMessage(messageParams);
     }
 
     @Override
     public CompletableFuture<MessageActionItem> showMessageRequest(ShowMessageRequestParams requestParams) {
-        return CompletableFuture.completedFuture(null);
+        return delegate.showMessageRequest(requestParams);
     }
 
     @Override
     public void logMessage(MessageParams message) {
-        LOG.infof("%s log: %s", lspServer.getConfig().getId(), message.getMessage());
-    }
-
-    @Override
-    public CompletableFuture<Void> registerCapability(RegistrationParams params) {
-        LOG.infof("[%s] Registering capabilities", lspServer.getConfig().getId());
-        lspServer.getClientFeatures().registerCapability(params);
-        return CompletableFuture.completedFuture(null);
-    }
-
-    @Override
-    public CompletableFuture<Void> unregisterCapability(UnregistrationParams params) {
-        LOG.infof("[%s] Unregistering capabilities", lspServer.getConfig().getId());
-        lspServer.getClientFeatures().unregisterCapability(params);
-        return CompletableFuture.completedFuture(null);
+        delegate.logMessage(message);
     }
 
     // ===== Endpoint implementation for bindRequest routing =====
 
     @Override
     public CompletableFuture<?> request(String method, Object parameter) {
-        LOG.debugf("[%s] GenericLanguageClient.request() called for: %s", lspServer.getConfig().getId(), method);
+        LOG.debugf("[%s] Endpoint.request() called for: %s", lspServer.getConfig().getId(), method);
 
-        // Check if this is a bindRequest declared in server.json
+        // Check if this is a bindRequest that should be routed
         BindRequestInfo bindInfo = findBindRequestInfo(method);
 
         if (bindInfo != null) {
@@ -86,10 +89,13 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
                 LOG.infof("[%s] Routing bindRequest %s to server %s (mode: %s)",
                     lspServer.getConfig().getId(), method, bindInfo.targetServerId, bindInfo.mode);
                 return router.routeRequest(bindInfo.targetServerId, method, parameter, bindInfo.mode);
+            } else {
+                LOG.warnf("[%s] No request router available for bindRequest %s",
+                    lspServer.getConfig().getId(), method);
             }
         }
 
-        // Not a bindRequest - return MethodNotFound
+        // Not a bindRequest - return MethodNotFound error
         CompletableFuture<Object> future = new CompletableFuture<>();
         future.completeExceptionally(new ResponseErrorException(
             new ResponseError(ResponseErrorCode.MethodNotFound, "Method not found: " + method, null)));
@@ -98,15 +104,15 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
 
     @Override
     public void notify(String method, Object parameter) {
-        // Notifications are handled via @JsonNotification
-        LOG.debugf("[%s] GenericLanguageClient.notify() called: %s", lspServer.getConfig().getId(), method);
+        // Notifications are handled via @JsonNotification on delegate
+        LOG.debugf("[%s] Endpoint.notify() called (should not happen): %s", lspServer.getConfig().getId(), method);
     }
 
     // ===== bindRequest routing logic =====
 
     private static class BindRequestInfo {
         final String targetServerId;
-        final String mode;
+        final String mode; // "executeCommand" or "direct"
 
         BindRequestInfo(String targetServerId, String mode) {
             this.targetServerId = targetServerId;
@@ -114,6 +120,9 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
         }
     }
 
+    /**
+     * Find which server this request should be routed to based on bindRequest declarations.
+     */
     private BindRequestInfo findBindRequestInfo(String requestMethod) {
         LspServerConfig config = lspServer.getConfig();
 
@@ -121,6 +130,7 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
             return null;
         }
 
+        // Look through all contributes.{serverId}.bindRequest arrays
         for (Map.Entry<String, JsonElement> entry : config.getContributes().getContributions().entrySet()) {
             String targetServerId = entry.getKey();
             JsonElement contrib = entry.getValue();
@@ -138,10 +148,13 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
 
             for (JsonElement req : bindRequests) {
                 if (req.isJsonPrimitive() && req.getAsString().equals(requestMethod)) {
-                    String mode = "executeCommand";
+                    // Found! Determine the mode
+                    String mode = "executeCommand"; // Default mode
                     if (contribObj.has("bindMode") && contribObj.get("bindMode").isJsonPrimitive()) {
                         mode = contribObj.get("bindMode").getAsString();
                     }
+                    LOG.debugf("[%s] Found bindRequest match: %s -> %s (mode: %s)",
+                        config.getId(), requestMethod, targetServerId, mode);
                     return new BindRequestInfo(targetServerId, mode);
                 }
             }
@@ -149,5 +162,4 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
 
         return null;
     }
-
 }

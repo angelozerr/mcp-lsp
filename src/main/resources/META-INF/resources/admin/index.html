@@ -2330,6 +2330,30 @@
         }
 
 
+        /**
+         * Colorize stack traces in trace body (lines starting with "at ").
+         * Stack trace lines are shown in red to highlight errors.
+         */
+        function foldStackTraces(body, traceIndex) {
+            const bodyLines = body.split('\n');
+            let html = '';
+
+            for (const line of bodyLines) {
+                const trimmed = line.trim();
+
+                // Detect stack trace line (starts with "at ")
+                if (trimmed.startsWith('at ') && trimmed.includes('(') && trimmed.includes(')')) {
+                    // Display stack trace line in red
+                    html += `<span style="color: #ff6b6b;">${escapeHtml(line)}</span>\n`;
+                } else {
+                    // Normal line
+                    html += escapeHtml(line) + '\n';
+                }
+            }
+
+            return html;
+        }
+
         function renderConsole() {
             const container = document.getElementById('console-output');
             if (!container) return;
@@ -2363,11 +2387,15 @@
                 const lines = content.split('\n');
                 const headerLine = lines[0]; // [Trace - HH:mm:ss] ...
 
+                // Detect if this is an error trace
+                const isError = headerLine.startsWith('[Error');
+                const headerColor = isError ? '#ff6b6b' : '#cccccc';
+
                 // Messages mode: show only header line, no folding
                 if (currentTraceLevel === 'messages') {
                     return `
                         <div class="trace-line">
-                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(headerLine)}</div>
+                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: ${headerColor};">${escapeHtml(headerLine)}</div>
                         </div>
                     `;
                 }
@@ -2380,12 +2408,15 @@
                 if (!hasBody) {
                     return `
                         <div class="trace-line">
-                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(headerLine)}</div>
+                            <div style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: ${headerColor};">${escapeHtml(headerLine)}</div>
                         </div>
                     `;
                 }
 
                 const fullContent = headerLine + '\n' + body;
+
+                // Detect and fold stack traces (lines starting with "at " or "\tat ")
+                const bodyWithFoldedStackTraces = foldStackTraces(body, index);
 
                 return `
                     <div class="trace-line" onmouseenter="showTooltip(event, ${index}, true)" onmouseleave="hideTooltip(${index})">
@@ -2394,9 +2425,9 @@
                              onmouseup="onHeaderMouseUp(${index})"
                              style="padding: 0.25rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem;">
                             <span class="trace-toggle" id="toggle-${index}" style="margin-right: 0.5rem;">▶</span>
-                            <span class="trace-header-text" style="color: #cccccc;">${escapeHtml(headerLine)}</span>
+                            <span class="trace-header-text" style="color: ${headerColor};">${escapeHtml(headerLine)}</span>
                         </div>
-                        <div class="trace-body collapsed" id="body-${index}" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${escapeHtml(body)}</div>
+                        <div class="trace-body collapsed" id="body-${index}" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #cccccc;">${bodyWithFoldedStackTraces}</div>
                         <div class="trace-tooltip" id="tooltip-${index}">${escapeHtml(fullContent)}</div>
                     </div>
                 `;

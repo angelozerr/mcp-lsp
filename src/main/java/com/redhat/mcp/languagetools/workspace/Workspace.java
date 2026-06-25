@@ -138,7 +138,7 @@ public class Workspace {
             LOG.debugf("Routing request %s to server %s (mode: %s), waiting for server to be ready...",
                 method, targetServerId, mode);
 
-            return targetServer.waitUntilReady(30000) // 30 seconds timeout
+            return targetServer.waitUntilReady()
                 .thenCompose(v -> {
                     LOG.debugf("Server %s is ready, routing request %s", targetServerId, method);
 

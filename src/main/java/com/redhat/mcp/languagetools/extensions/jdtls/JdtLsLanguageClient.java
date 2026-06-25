@@ -1,6 +1,8 @@
 package com.redhat.mcp.languagetools.extensions.jdtls;
 
+import com.redhat.mcp.languagetools.lsp.client.GenericLanguageClient;
 import org.eclipse.lsp4j.*;
+import org.eclipse.lsp4j.jsonrpc.Endpoint;
 import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.jboss.logging.Logger;
@@ -10,8 +12,9 @@ import java.util.concurrent.CountDownLatch;
 
 /**
  * Language client for JDT.LS with support for java/languageStatus notifications.
+ * Extends GenericLanguageClient to inherit bindRequest routing support.
  */
-public class JdtLsLanguageClient implements LanguageClient {
+public class JdtLsLanguageClient extends GenericLanguageClient {
 
     private static final Logger LOG = Logger.getLogger(JdtLsLanguageClient.class);
 
@@ -20,6 +23,7 @@ public class JdtLsLanguageClient implements LanguageClient {
     private volatile String currentStatus = "Starting";
 
     public JdtLsLanguageClient(JdtLsServer server) {
+        super(server);
         this.server = server;
     }
 
@@ -38,20 +42,6 @@ public class JdtLsLanguageClient implements LanguageClient {
             LOG.info("JDT.LS is ready!");
             server.setReady(true);
             readyLatch.countDown();
-        }
-    }
-
-    /**
-     * Wait for JDT.LS to become ready.
-     * @param timeoutSeconds timeout in seconds
-     * @return true if ready, false if timed out
-     */
-    public boolean awaitReady(long timeoutSeconds) {
-        try {
-            return readyLatch.await(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
         }
     }
 
