@@ -1,0 +1,30 @@
+{
+  "id": "lemminx",
+  "name": "LemMinX (XML Language Server)",
+  "check": {
+    "fileExists": {
+      "name": "Check if LemMinX is installed",
+      "file": "$SERVER_HOME$/lemminx.jar"
+    }
+  },
+  "run": {
+    "download": {
+      "name": "Download LemMinX",
+      "url": "https://download.eclipse.org/lemminx/releases/0.31.2/org.eclipse.lemminx-uber.jar",
+      "output": {
+        "dir": "$SERVER_HOME$",
+        "file": {
+          "name": "lemminx.jar",
+          "executable": true
+        }
+      },
+      "onSuccess": {
+        "configureServer": {
+          "name": "Configure LemMinX server command",
+          "command": "java -jar \"${output.dir}/${output.file.name}\"",
+          "update": true
+        }
+      }
+    }
+  }
+}

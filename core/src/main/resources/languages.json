@@ -1,0 +1,23 @@
+[
+  {
+    "id": "java",
+    "extensions": [".java", ".class"],
+    "aliases": ["Java", "java"],
+    "filenames": [],
+    "filenamePatterns": []
+  },
+  {
+    "id": "xml",
+    "extensions": [".xml", ".xsd", ".xsl", ".xslt"],
+    "aliases": ["XML"],
+    "filenames": [],
+    "filenamePatterns": []
+  },
+  {
+    "id": "properties",
+    "extensions": [".properties"],
+    "aliases": ["Properties"],
+    "filenames": [],
+    "filenamePatterns": []
+  }
+]

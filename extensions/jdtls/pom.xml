@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.redhat.mcp</groupId>
+        <artifactId>mcp-language-tools-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>jdtls-extension</artifactId>
+    <packaging>jar</packaging>
+
+    <name>JDT.LS Extension</name>
+    <description>JDT.LS (Java) language server extension for MCP Language Tools</description>
+
+    <dependencies>
+        <!-- Core dependency for compilation (provided = not packaged in JAR) -->
+        <dependency>
+            <groupId>com.redhat.mcp</groupId>
+            <artifactId>mcp-language-tools-core</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

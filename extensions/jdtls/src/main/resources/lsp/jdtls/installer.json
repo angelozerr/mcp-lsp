@@ -1,0 +1,33 @@
+{
+  "id": "jdtls",
+  "name": "Eclipse JDT Language Server",
+  "check": {
+    "fileExists": {
+      "name": "Check if JDT.LS is installed",
+      "file": "$SERVER_HOME$/bin/jdtls"
+    }
+  },
+  "run": {
+    "download": {
+      "name": "Download JDT.LS",
+      "url": "https://www.eclipse.org/downloads/download.php?file=/jdtls/snapshots/jdt-language-server-latest.tar.gz",
+      "output": {
+        "dir": "$SERVER_HOME$",
+        "file": {
+          "name": {
+            "windows": "bin/jdtls.bat",
+            "default": "bin/jdtls"
+          },
+          "executable": true
+        }
+      },
+      "onSuccess": {
+        "configureServer": {
+          "name": "Configure JDT.LS server command",
+          "command": "\"${output.dir}/${output.file.name}\" -configuration \"$USER_HOME$/.cache/jdtls\" -data \"$PROJECT_DIR$/jdtls-data\"",
+          "update": true
+        }
+      }
+    }
+  }
+}

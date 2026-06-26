@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Language Tools - Admin</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left: Workspaces or All Servers -->
+        <div class="workspaces-sidebar">
+            <div class="sidebar-header">
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('workspaces', this)">Workspaces</div>
+                    <div class="tab" onclick="switchTab('all-servers', this)">Servers</div>
+                    <div class="tab" onclick="switchTab('mcp-traces', this)">MCP</div>
+                </div>
+            </div>
+            <div id="workspaces-list"></div>
+            <div id="all-servers-list" style="display: none;"></div>
+            <div id="mcp-traces-list" style="display: none;">
+                <div style="padding: 1rem; border-bottom: 1px solid #1e1e1e;">
+                    <h3 style="margin-bottom: 0.25rem; color: #cccccc;">AI Clients</h3>
+                    <p style="font-size: 0.75rem; color: #666;">Connected via MCP</p>
+                </div>
+                <div id="mcp-clients-list"></div>
+            </div>
+        </div>
+
+        <!-- Middle: LSP Servers -->
+        <div class="servers-sidebar">
+            <div id="servers-list"></div>
+        </div>
+
+        <!-- Right: Console -->
+        <div class="console-container" id="console-container">
+            <div class="search-box" id="search-box">
+                <input type="text" id="search-input" placeholder="Find in console..." />
+                <span class="search-count" id="search-count">0/0</span>
+                <button onclick="searchPrev()">↑</button>
+                <button onclick="searchNext()">↓</button>
+                <span class="search-close" onclick="closeSearch()">×</span>
+            </div>
+            <div id="console-area">
+                <div class="placeholder">
+                    ← Select a workspace and LSP server to view console
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generic Modal (for confirmAction, showAlert) -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-title" id="modal-title"></div>
+            <div class="modal-message" id="modal-message"></div>
+            <div class="modal-buttons" id="modal-buttons"></div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal (for closeWorkspace) -->
+    <div id="confirm-modal" class="modal-overlay" onclick="if(event.target === this) hideConfirmModal()">
+        <div class="modal">
+            <div class="modal-title" id="confirm-modal-title">Confirm Action</div>
+            <div class="modal-message" id="confirm-modal-message"></div>
+            <div class="modal-buttons">
+                <button class="modal-button modal-button-cancel" onclick="hideConfirmModal()">Cancel</button>
+                <button class="modal-button modal-button-confirm" id="modal-confirm-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/admin.js"></script>
+</body>
+</html>

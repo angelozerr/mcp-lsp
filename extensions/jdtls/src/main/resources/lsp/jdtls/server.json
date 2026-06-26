@@ -1,0 +1,10 @@
+{
+  "id": "jdtls",
+  "name": "Eclipse JDT Language Server",
+  "description": "Java language server based on Eclipse JDT",
+  "documentSelector": [
+    {
+      "language": "java"
+    }
+  ]
+}

@@ -6,7 +6,12 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="mcp-lsp" />
+        <module name="lemminx-extension" />
+        <module name="mcp-language-tools-dev" />
+        <module name="mcp-language-tools-core" />
+        <module name="jdtls-extension" />
+        <module name="microprofile-extension" />
+        <module name="quarkus-extension" />
       </profile>
     </annotationProcessing>
   </component>

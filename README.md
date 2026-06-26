@@ -56,14 +56,57 @@ This project is built with:
 - **[Quarkus](https://quarkus.io/)**: Supersonic Subatomic Java Framework
 - **[LSP4J](https://github.com/eclipse-lsp4j/lsp4j)**: Java implementation of the Language Server Protocol
 
+## Project Structure
+
+This project uses a multi-module Maven architecture to support a flexible extension system:
+
+```
+mcp-lsp/
+├── pom.xml                      # Parent POM
+├── core/                        # Core framework (LSP integration, MCP tools, admin UI)
+├── extensions/                  # LSP server extensions
+│   ├── lemminx/                 # XML language server (LemMinX)
+│   ├── microprofile/            # MicroProfile language server
+│   ├── quarkus/                 # Quarkus language server
+│   └── jdtls/                   # Java language server (JDT.LS) with custom code
+└── dev/                         # Development distribution (core + all extensions)
+```
+
+### Module Roles
+
+- **`core/`**: The MCP Language Tools framework without any bundled LSP servers. Contains:
+  - MCP server implementation and tools (`get_diagnostics`, `find_references`, etc.)
+  - LSP server lifecycle management
+  - Admin console UI
+  - Extension discovery and loading system
+
+- **`extensions/`**: LSP server extensions, each containing:
+  - `server.json`: Server configuration (command, document selectors, etc.)
+  - `installer.json`: Installation steps (download URL, extraction, etc.)
+  - Optional Java code for advanced server implementations (like JDT.LS)
+  - Optional SPI (`META-INF/services`) for custom server factories
+
+- **`dev/`**: Development distribution that bundles core + all extensions for easy local development with hot-reload
+
+### Extension System
+
+This modular architecture enables:
+- **Development mode**: All extensions loaded via classpath (hot-reload enabled)
+- **Production mode** (future): Core can load extensions dynamically from JARs
+- **Custom extensions**: Developers can create their own LSP server extensions by packaging them as JARs with `server.json` + optional code
+
 ## Getting Started
 
 ### 1. Running the application in dev mode
 
 You can run your application in dev mode that enables live coding using:
 
-```shell script
-./mvnw quarkus:dev
+```shell script for Windows
+cd dev; ../mvnw quarkus:dev
+```
+
+```shell script for Mac/Unix
+cd dev && ../mvnw quarkus:dev
 ```
 
 > **_NOTE:_**  Quarkus now ships with a Dev UI, which is available in dev mode only at <http://localhost:7654/q/dev/>.
@@ -125,7 +168,7 @@ Or, if you don't have GraalVM installed, you can run the native executable build
 ./mvnw package -Dnative -Dquarkus.native.container-build=true
 ```
 
-You can then execute your native executable with: `./target/mcp-language-tools-dev.jar`
+You can then execute your native executable with: `./dev/target/mcp-language-tools-dev-*-runner`
 
 If you want to learn more about building native executables, please consult <https://quarkus.io/guides/maven-tooling>.
 

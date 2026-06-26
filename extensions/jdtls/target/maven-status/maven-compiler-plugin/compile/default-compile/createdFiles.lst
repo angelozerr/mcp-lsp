@@ -1,0 +1,4 @@
+com\redhat\mcp\languagetools\extensions\jdtls\JdtLsLanguageClient.class
+com\redhat\mcp\languagetools\extensions\jdtls\JdtLsServer.class
+com\redhat\mcp\languagetools\extensions\jdtls\JdtLsLanguageClient$StatusReport.class
+com\redhat\mcp\languagetools\extensions\jdtls\JdtLsServerFactory.class
