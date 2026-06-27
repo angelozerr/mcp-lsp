@@ -2,6 +2,8 @@ package com.redhat.mcp.languagetools.admin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redhat.mcp.languagetools.admin.dto.McpClientDTO;
+import com.redhat.mcp.languagetools.admin.dto.ServerDTOBuilder;
+import com.redhat.mcp.languagetools.admin.dto.ServerRuntimeDTO;
 import com.redhat.mcp.languagetools.admin.dto.WorkspaceDTO;
 import com.redhat.mcp.languagetools.admin.ws.*;
 import com.redhat.mcp.languagetools.lsp.server.LspServerStatusChangeEvent;
@@ -48,6 +50,9 @@ public class AdminWebSocketEndpoint {
 
     @Inject
     com.redhat.mcp.languagetools.mcp.trace.McpTraceCollector mcpTraceCollector;
+
+    @Inject
+    ServerDTOBuilder serverDTOBuilder;
 
     // Thread-safe set of active WebSocket sessions
     private final Set<Session> sessions = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -340,56 +345,9 @@ public class AdminWebSocketEndpoint {
     private WorkspaceDTO toWorkspaceDTO(URI uri, Workspace workspace) {
         var allServerConfigs = workspaceManager.getServerConfigs();
 
-        List<com.redhat.mcp.languagetools.admin.dto.LspServerDTO> servers = allServerConfigs.values().stream()
-                .map(config -> {
-                    com.redhat.mcp.languagetools.admin.dto.LspServerDTO.ExternalInstanceInfo externalInfo = null;
-                    Long pid = null;
-                    String command = null;
-
-                    var lspServer = workspace.getLspServer(config.getId());
-                    if (lspServer != null) {
-                        var currentInstance = lspServer.getCurrentInstance();
-                        if (currentInstance != null) {
-                            externalInfo = new com.redhat.mcp.languagetools.admin.dto.LspServerDTO.ExternalInstanceInfo(
-                                    currentInstance.port,
-                                    currentInstance.pid,
-                                    true,
-                                    currentInstance.clientName,
-                                    currentInstance.clientVersion
-                            );
-                        }
-
-                        pid = lspServer.getPid();
-                        command = lspServer.getStartCommand();
-                    }
-
-                    // Get status message, truncate if too long
-                    String statusMessage = lspServer != null ? lspServer.getStatusMessage() : null;
-                    if (statusMessage != null && statusMessage.length() > 100) {
-                        statusMessage = statusMessage.substring(0, 97) + "...";
-                    }
-
-                    // Get ready state
-                    boolean isReady = lspServer != null && lspServer.isReady();
-
-                    // Get contributesTo list (servers this one contributes to via bindRequest)
-                    java.util.List<String> contributesTo = java.util.List.of();
-                    if (config.getContributes() != null && config.getContributes().getContributions() != null) {
-                        contributesTo = new java.util.ArrayList<>(config.getContributes().getContributions().keySet());
-                    }
-
-                    return new com.redhat.mcp.languagetools.admin.dto.LspServerDTO(
-                            config.getId(),
-                            config.getName(),
-                            workspace.getServerStatus(config.getId()),
-                            statusMessage,
-                            isReady,
-                            contributesTo,
-                            externalInfo,
-                            pid,
-                            command
-                    );
-                })
+        // Build runtime DTOs for all servers in this workspace
+        List<ServerRuntimeDTO> servers = allServerConfigs.values().stream()
+                .map(config -> serverDTOBuilder.buildRuntime(config, workspace))
                 .toList();
 
         java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ISO_INSTANT;

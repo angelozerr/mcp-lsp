@@ -1,8 +1,11 @@
 package com.redhat.mcp.languagetools.admin;
 
 import com.redhat.mcp.languagetools.admin.dto.ErrorResponse;
+import com.redhat.mcp.languagetools.admin.dto.ServerConfigDTO;
+import com.redhat.mcp.languagetools.admin.dto.ServerDTOBuilder;
 import com.redhat.mcp.languagetools.admin.dto.StatusResponse;
-import com.redhat.mcp.languagetools.lsp.server.ServerStatus;
+import com.redhat.mcp.languagetools.workspace.Workspace;
+import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -10,9 +13,7 @@ import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
 import java.net.URI;
-
-import com.redhat.mcp.languagetools.workspace.Workspace;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
+import java.util.List;
 
 @Path("/api/admin/servers")
 @Produces(MediaType.APPLICATION_JSON)
@@ -23,37 +24,22 @@ public class LspServerControlResource {
     @Inject
     WorkspaceManager workspaceManager;
 
+    @Inject
+    ServerDTOBuilder serverDTOBuilder;
+
     /**
-     * List all configured servers (independent of workspaces).
-     * Shows server configs even when no workspace/client is connected.
+     * List all configured servers (static config, independent of workspaces).
+     * Returns server configurations without runtime state.
      */
     @GET
-    public java.util.List<com.redhat.mcp.languagetools.admin.dto.LspServerDTO> listAllServers() {
+    public List<ServerConfigDTO> listAllServers() {
         LOG.info("listAllServers() called");
         try {
             var configs = workspaceManager.getServerConfigs();
             LOG.infof("Found %d server configs", configs.size());
 
             var result = configs.values().stream()
-                    .map(config -> {
-                        // Get contributesTo list (servers this one contributes to via bindRequest)
-                        java.util.List<String> contributesTo = java.util.List.of();
-                        if (config.getContributes() != null && config.getContributes().getContributions() != null) {
-                            contributesTo = new java.util.ArrayList<>(config.getContributes().getContributions().keySet());
-                        }
-
-                        return new com.redhat.mcp.languagetools.admin.dto.LspServerDTO(
-                            config.getId(),
-                            config.getName(),
-                            ServerStatus.STOPPED,
-                            null,   // statusMessage
-                            false,  // isReady
-                            contributesTo,
-                            null,   // externalInstance
-                            null,   // pid
-                            null    // command
-                        );
-                    })
+                    .map(serverDTOBuilder::buildConfig)
                     .toList();
 
             LOG.infof("Returning %d servers", result.size());

@@ -1,5 +1,11 @@
 package com.redhat.mcp.languagetools.admin;
 
+import com.redhat.mcp.languagetools.admin.dto.ServerDTOBuilder;
+import com.redhat.mcp.languagetools.admin.dto.ServerRuntimeDTO;
+import com.redhat.mcp.languagetools.admin.dto.WorkspaceDTO;
+import com.redhat.mcp.languagetools.lsp.server.LspServerConfig;
+import com.redhat.mcp.languagetools.workspace.Workspace;
+import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -9,12 +15,6 @@ import org.jboss.logging.Logger;
 import java.net.URI;
 import java.util.List;
 
-import com.redhat.mcp.languagetools.admin.dto.LspServerDTO;
-import com.redhat.mcp.languagetools.admin.dto.WorkspaceDTO;
-import com.redhat.mcp.languagetools.workspace.Workspace;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
-import com.redhat.mcp.languagetools.lsp.server.LspServerStatusChangeEvent;
-
 @Path("/api/admin")
 @Produces(MediaType.APPLICATION_JSON)
 public class AdminResource {
@@ -23,6 +23,9 @@ public class AdminResource {
 
     @Inject
     WorkspaceManager workspaceManager;
+
+    @Inject
+    ServerDTOBuilder serverDTOBuilder;
 
     @GET
     @Path("/workspaces")
@@ -72,59 +75,9 @@ public class AdminResource {
         // Get all available server descriptors
         var allServerConfigs = workspaceManager.getServerConfigs();
 
-        // Map to DTOs with actual status (INSTALLING, STARTING, RUNNING, or STOPPED)
-        List<LspServerDTO> servers = allServerConfigs.values().stream()
-                .map(config -> {
-                    LspServerDTO.ExternalInstanceInfo externalInfo = null;
-                    Long pid = null;
-                    String command = null;
-
-                    // Only show external instance info if server is already connected
-                    var lspServer = workspace.getLspServer(config.getId());
-                    if (lspServer != null) {
-                        var currentInstance = lspServer.getCurrentInstance();
-                        if (currentInstance != null) {
-                            externalInfo = new LspServerDTO.ExternalInstanceInfo(
-                                currentInstance.port,
-                                currentInstance.pid,
-                                true,
-                                currentInstance.clientName,
-                                currentInstance.clientVersion
-                            );
-                        }
-
-                        // Get PID and command from running server
-                        pid = lspServer.getPid();
-                        command = lspServer.getStartCommand();
-                    }
-
-                    // Get status message, truncate if too long
-                    String statusMessage = lspServer != null ? lspServer.getStatusMessage() : null;
-                    if (statusMessage != null && statusMessage.length() > 100) {
-                        statusMessage = statusMessage.substring(0, 97) + "...";
-                    }
-
-                    // Get ready state
-                    boolean isReady = lspServer != null && lspServer.isReady();
-
-                    // Get contributesTo list (servers this one contributes to via bindRequest)
-                    java.util.List<String> contributesTo = java.util.List.of();
-                    if (config.getContributes() != null && config.getContributes().getContributions() != null) {
-                        contributesTo = new java.util.ArrayList<>(config.getContributes().getContributions().keySet());
-                    }
-
-                    return new LspServerDTO(
-                        config.getId(),
-                        config.getName(),
-                        workspace.getServerStatus(config.getId()),
-                        statusMessage,
-                        isReady,
-                        contributesTo,
-                        externalInfo,
-                        pid,
-                        command
-                    );
-                })
+        // Build runtime DTOs for all servers in this workspace
+        List<ServerRuntimeDTO> servers = allServerConfigs.values().stream()
+                .map(config -> serverDTOBuilder.buildRuntime(config, workspace))
                 .toList();
 
         // Build MCP client info with timestamps
