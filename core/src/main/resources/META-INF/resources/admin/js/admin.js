@@ -10,14 +10,67 @@
         // WebSocket connection (replaces SSE and polling)
         let adminWebSocket = null;
 
+        // Global server configurations (static config loaded once at startup)
+        let serverConfigs = {}; // Map<serverId, ServerConfigDTO>
+
+        /**
+         * Load global server configurations (called once at startup).
+         */
+        async function loadServerConfigs() {
+            try {
+                const response = await fetch('/api/admin/servers');
+                const configs = await response.json();
+
+                // Build a map for quick lookup
+                serverConfigs = {};
+                configs.forEach(config => {
+                    serverConfigs[config.id] = config;
+                });
+
+                console.log('Loaded', configs.length, 'server configs');
+            } catch (error) {
+                console.error('Failed to load server configs:', error);
+            }
+        }
+
+        /**
+         * Merge runtime state with static config.
+         * @param {Object} runtime - ServerRuntimeDTO from workspace
+         * @returns {Object} Merged server object with both config and runtime
+         */
+        function mergeServerData(runtime) {
+            const config = serverConfigs[runtime.serverId] || {};
+            return {
+                // Config fields
+                id: runtime.serverId,
+                name: config.name || runtime.serverId,
+                description: config.description,
+                documentSelector: config.documentSelector,
+                command: config.command,
+                args: config.args,
+                env: config.env,
+                workingDirectory: config.workingDirectory,
+                initializationOptions: config.initializationOptions,
+                contributions: config.contributions,
+
+                // Runtime fields
+                status: runtime.status,
+                statusMessage: runtime.statusMessage,
+                isReady: runtime.isReady,
+                pid: runtime.pid,
+                externalInstance: runtime.externalInstance
+            };
+        }
+
         /**
          * Build contributedBy map (inverse of contributesTo)
          */
         function buildContributedByMap(servers) {
             const map = {};
             for (const server of servers) {
-                if (server.contributesTo && server.contributesTo.length > 0) {
-                    for (const targetId of server.contributesTo) {
+                // contributions is now a Map<targetServerId, Map<contributionType, List<?>>>
+                if (server.contributions) {
+                    for (const targetId of Object.keys(server.contributions)) {
                         if (!map[targetId]) map[targetId] = [];
                         map[targetId].push(server.id);
                     }
@@ -30,7 +83,8 @@
          * Format contribute info for display (contributesTo or contributedBy)
          */
         function formatContributeInfo(server, contributedByMap) {
-            const contributesTo = server.contributesTo || [];
+            // Extract contributesTo from contributions map
+            const contributesTo = server.contributions ? Object.keys(server.contributions) : [];
             const contributedBy = contributedByMap[server.id] || [];
 
             let text = '';
@@ -169,9 +223,16 @@
          */
         function handleWorkspacesUpdate(newWorkspaces) {
             console.log('WebSocket workspaces update:', newWorkspaces);
+
+            // Merge runtime server data with static configs for each workspace
+            const mergedWorkspaces = newWorkspaces.map(workspace => ({
+                ...workspace,
+                lspServers: workspace.lspServers.map(mergeServerData)
+            }));
+
             // Update if data changed OR if this is the first render
-            if (!workspacesRendered || JSON.stringify(newWorkspaces) !== JSON.stringify(workspaces)) {
-                workspaces = newWorkspaces;
+            if (!workspacesRendered || JSON.stringify(mergedWorkspaces) !== JSON.stringify(workspaces)) {
+                workspaces = mergedWorkspaces;
                 workspacesRendered = true;
                 console.log('Workspaces updated, rendering...');
                 renderWorkspaces();
@@ -305,8 +366,8 @@
 
         async function loadAllServers() {
             try {
-                const response = await fetch('/api/admin/servers');
-                const servers = await response.json();
+                // Use cached server configs (already loaded at startup)
+                const servers = Object.values(serverConfigs);
 
                 const container = document.getElementById('all-servers-list');
                 if (!container) {
@@ -345,9 +406,8 @@
             // Update selected server and refresh list to show active state
             selectedAllServer = serverId;
 
-            // Re-render server list to update active state
-            const response = await fetch('/api/admin/servers');
-            const servers = await response.json();
+            // Re-render server list to update active state (use cached configs)
+            const servers = Object.values(serverConfigs);
             const contributedByMap = buildContributedByMap(servers);
             const container = document.getElementById('all-servers-list');
             container.innerHTML = servers.map(server => {
@@ -375,52 +435,63 @@
                 const response = await fetch(`/api/admin/servers/${serverId}/details`);
                 const details = await response.json();
 
-                // Format command (can be string or object)
-                let commandStr = '';
-                if (details.command) {
-                    if (typeof details.command === 'string') {
-                        commandStr = details.command;
-                    } else if (typeof details.command === 'object') {
-                        commandStr = JSON.stringify(details.command, null, 2);
-                    }
-                }
+                // Use shared rendering function
+                const detailsHTML = renderServerDetailsHTML(details);
+                const contributionsHTML = formatContributionsSection(details, servers);
 
-                // Show in console area
                 const html = `
-                    <div class="details-panel" style="padding: 2rem; color: #cccccc; overflow-y: auto;">
-                        <h2 style="margin-bottom: 1.5rem; color: #ffffff;">${details.name || details.id}</h2>
-
-                        <div style="margin-bottom: 1.5rem;">
-                            <h3 style="color: #007acc; font-size: 0.9rem; margin-bottom: 0.5rem;">SERVER ID</h3>
-                            <div style="font-family: monospace; background: #1e1e1e; padding: 0.5rem; border-radius: 4px;">${details.id}</div>
+                    <div class="console-header">
+                        <div class="console-title">${details.name || details.id}</div>
+                        <div class="console-tabs">
+                            <button class="tab-button active" onclick="switchServerTab('details')">Details</button>
+                            <button class="tab-button" onclick="switchServerTab('contributions')">Contributions</button>
+                            <button class="tab-button" onclick="switchServerTab('install')">Install</button>
                         </div>
-
-                        ${commandStr ? `
-                        <div style="margin-bottom: 1.5rem;">
-                            <h3 style="color: #007acc; font-size: 0.9rem; margin-bottom: 0.5rem;">COMMAND</h3>
-                            <pre style="font-family: monospace; background: #1e1e1e; padding: 0.5rem; border-radius: 4px; word-break: break-all; white-space: pre-wrap; margin: 0;">${commandStr}</pre>
-                        </div>
-                        ` : ''}
-
-                        ${details.documentSelector && details.documentSelector.length > 0 ? `
-                        <div style="margin-bottom: 1.5rem;">
-                            <h3 style="color: #007acc; font-size: 0.9rem; margin-bottom: 0.5rem;">DOCUMENT SELECTOR</h3>
-                            <div style="font-family: monospace; background: #1e1e1e; padding: 0.5rem; border-radius: 4px;">
-                                ${details.documentSelector.map(sel =>
-                                    `<div>${sel.language ? 'Language: ' + sel.language : ''} ${sel.scheme ? 'Scheme: ' + sel.scheme : ''} ${sel.pattern ? 'Pattern: ' + sel.pattern : ''}</div>`
-                                ).join('')}
+                    </div>
+                    <div class="tab-content">
+                        <div id="server-details-tab" class="tab-panel active">
+                            <div class="details-panel" style="padding: 2rem; color: #cccccc; overflow-y: auto;">
+                                ${detailsHTML}
+                                <div style="margin-top: 2rem; padding: 1rem; background: #252526; border-left: 3px solid #007acc; border-radius: 4px;">
+                                    <strong>Note:</strong> To run this server, open a workspace using an MCP client.
+                                </div>
                             </div>
                         </div>
-                        ` : ''}
-
-                        <div style="margin-top: 2rem; padding: 1rem; background: #252526; border-left: 3px solid #007acc; border-radius: 4px;">
-                            <strong>Note:</strong> To run this server, open a workspace using an MCP client.
+                        <div id="server-contributions-tab" class="tab-panel">
+                            <div class="details-panel" style="padding: 2rem; color: #cccccc; overflow-y: auto;">
+                                ${contributionsHTML || '<p class="detail-value">No contributions</p>'}
+                            </div>
+                        </div>
+                        <div id="server-install-tab" class="tab-panel">
+                            <div class="install-panel">
+                                <h3>Installer Configuration</h3>
+                                <div class="install-info">
+                                    <p><strong>Server:</strong> ${details.name}</p>
+                                    <p><strong>ID:</strong> ${details.id}</p>
+                                </div>
+                                <div class="installer-editor">
+                                    <div class="editor-header">
+                                        <span>installer.json</span>
+                                        <div class="editor-actions">
+                                            <button class="editor-btn" onclick="saveInstallerJson('${details.id}')" title="Save">💾 Save</button>
+                                            <button class="editor-btn" onclick="resetInstallerJson('${details.id}')" title="Reset">↻ Reset</button>
+                                        </div>
+                                    </div>
+                                    <textarea id="installer-json-editor" class="json-editor" spellcheck="false"></textarea>
+                                </div>
+                                <button class="install-button" onclick="runInstaller('${details.id}')">▶ Run Installer</button>
+                                <div id="install-output" class="install-output"></div>
+                            </div>
                         </div>
                     </div>
                 `;
 
                 const consoleArea = document.getElementById('console-area');
                 consoleArea.innerHTML = html;
+
+                // Load installer.json for this server
+                loadInstallerJson(details.id);
+
                 console.log('innerHTML set, now checking:', consoleArea.innerHTML.substring(0, 100));
             } catch (error) {
                 console.error('Failed to load server details:', error);
@@ -674,19 +745,23 @@
             return labels[status] || status;
         }
 
-        function renderServers(servers) {
+        function renderServers(serversRuntime) {
             const container = document.getElementById('servers-list');
-            console.log('renderServers - container:', container, 'servers:', servers);
+            console.log('renderServers - container:', container, 'serversRuntime:', serversRuntime);
 
             if (!container) {
                 console.error('servers-list element not found!');
                 return;
             }
 
-            if (servers.length === 0) {
+            if (serversRuntime.length === 0) {
                 container.innerHTML = '<div class="servers-placeholder">No LSP servers</div>';
                 return;
             }
+
+            // Merge runtime with configs
+            // Servers are already merged in handleWorkspacesUpdate()
+            const servers = serversRuntime;
 
             // Calculate contributedBy for all servers
             const contributedByMap = buildContributedByMap(servers);
@@ -872,6 +947,7 @@
                         <div class="console-tabs">
                             <button class="tab-button active" onclick="switchConsoleTab('traces')">Traces</button>
                             <button class="tab-button" onclick="switchConsoleTab('details')">Details</button>
+                            <button class="tab-button" onclick="switchConsoleTab('contributions')">Contributions</button>
                             <button class="tab-button" onclick="switchConsoleTab('install')">Install</button>
                         </div>
                         <div class="console-controls" id="traces-controls">
@@ -893,6 +969,11 @@
                         </div>
                         <div id="details-tab" class="tab-panel">
                             <div class="details-panel" id="details-content">
+                                <p>Loading...</p>
+                            </div>
+                        </div>
+                        <div id="contributions-tab" class="tab-panel">
+                            <div class="details-panel" id="contributions-content">
                                 <p>Loading...</p>
                             </div>
                         </div>
@@ -1039,12 +1120,14 @@
         }
 
         async function loadServerDetails(serverId) {
+            console.log('loadServerDetails called for:', serverId);
             try {
                 const detailsContent = document.getElementById('details-content');
                 if (!detailsContent) {
                     console.warn('details-content element not found, skipping load');
                     return;
                 }
+                console.log('detailsContent found, fetching details...');
 
                 const response = await fetch(`/api/admin/servers/${serverId}/details`);
                 if (!response.ok) {
@@ -1053,51 +1136,21 @@
 
                 const details = await response.json();
 
+                // Get all servers for contributedBy calculation
+                const allServers = workspaces.find(w => w.rootUri === selectedWorkspace)?.lspServers || [];
+
+                // Use shared rendering function
                 detailsContent.innerHTML = `
                     <h3>Server Configuration</h3>
-
-                    <div class="details-section">
-                        <h4>General Information</h4>
-                        <div class="detail-item">
-                            <span class="detail-label">ID:</span>
-                            <span class="detail-value">${details.id}</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Name:</span>
-                            <span class="detail-value">${details.name || 'N/A'}</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Description:</span>
-                            <span class="detail-value">${details.description || 'N/A'}</span>
-                        </div>
-                    </div>
-
-                    <div class="details-section">
-                        <h4>Document Selector</h4>
-                        ${details.documentSelector && details.documentSelector.length > 0 ?
-                            details.documentSelector.map(selector => `
-                                <div class="selector-item">
-                                    ${selector.language ? `<span class="selector-tag">language: ${selector.language}</span>` : ''}
-                                    ${selector.scheme ? `<span class="selector-tag">scheme: ${selector.scheme}</span>` : ''}
-                                    ${selector.pattern ? `<span class="selector-tag">pattern: ${selector.pattern}</span>` : ''}
-                                </div>
-                            `).join('')
-                            : '<p class="detail-value">No document selector defined</p>'
-                        }
-                    </div>
-
-                    <div class="details-section">
-                        <h4>Command</h4>
-                        <pre class="command-preview">${formatCommand(details.command)}</pre>
-                    </div>
-
-                    ${details.initializationOptions && Object.keys(details.initializationOptions).length > 0 ? `
-                        <div class="details-section">
-                            <h4>Initialization Options</h4>
-                            <pre class="detail-value">${JSON.stringify(details.initializationOptions, null, 2)}</pre>
-                        </div>
-                    ` : ''}
+                    ${renderServerDetailsHTML(details)}
                 `;
+
+                // Update contributions tab
+                const contributionsContent = document.getElementById('contributions-content');
+                if (contributionsContent) {
+                    const contributionsHTML = formatContributionsSection(details, allServers);
+                    contributionsContent.innerHTML = contributionsHTML || '<p class="detail-value">No contributions</p>';
+                }
             } catch (error) {
                 console.error('Failed to load server details:', error);
                 const detailsContent = document.getElementById('details-content');
@@ -1107,13 +1160,183 @@
             }
         }
 
-        function formatCommand(command) {
-            if (typeof command === 'string') {
-                return command;
-            } else if (typeof command === 'object') {
-                return JSON.stringify(command, null, 2);
+        /**
+         * Render complete server details HTML (shared between Servers and Workspaces tabs).
+         * Does NOT include contributions (now in separate tab).
+         * @param {Object} server - The server config/details object
+         * @returns {string} HTML string
+         */
+        function renderServerDetailsHTML(server) {
+            // Format command (can be string or object)
+            let commandStr = '';
+            if (server.command) {
+                if (typeof server.command === 'string') {
+                    commandStr = server.command;
+                } else if (typeof server.command === 'object') {
+                    commandStr = JSON.stringify(server.command, null, 2);
+                }
             }
-            return 'N/A';
+
+            return `
+                <div class="details-section">
+                    <h4>General Information</h4>
+                    <div class="detail-item">
+                        <span class="detail-label">ID:</span>
+                        <span class="detail-value">${server.id}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Name:</span>
+                        <span class="detail-value">${server.name || 'N/A'}</span>
+                    </div>
+                    ${server.description ? `
+                    <div class="detail-item">
+                        <span class="detail-label">Description:</span>
+                        <span class="detail-value">${server.description}</span>
+                    </div>
+                    ` : ''}
+                </div>
+
+                ${server.documentSelector && server.documentSelector.length > 0 ? `
+                <div class="details-section">
+                    <h4>Document Selector</h4>
+                    ${server.documentSelector.map(selector => `
+                        <div class="selector-item">
+                            ${selector.language ? `<span class="selector-tag">language: ${selector.language}</span>` : ''}
+                            ${selector.scheme ? `<span class="selector-tag">scheme: ${selector.scheme}</span>` : ''}
+                            ${selector.pattern ? `<span class="selector-tag">pattern: ${selector.pattern}</span>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+                ` : ''}
+
+                ${commandStr ? `
+                <div class="details-section">
+                    <h4>Command</h4>
+                    <pre class="command-preview">${commandStr}</pre>
+                </div>
+                ` : ''}
+
+                ${server.initializationOptions && Object.keys(server.initializationOptions).length > 0 ? `
+                <div class="details-section">
+                    <h4>Initialization Options</h4>
+                    <pre class="detail-value">${JSON.stringify(server.initializationOptions, null, 2)}</pre>
+                </div>
+                ` : ''}
+            `;
+        }
+
+        /**
+         * Format contributions section for server details view.
+         * Shows both "Contributes To" and "Contributed By" with contribution details.
+         * @param {Object} server - The server object with contributions
+         * @param {Array} allServers - All servers list for calculating contributedBy (optional, will fetch from workspace if not provided)
+         */
+        function formatContributionsSection(server, allServers = null) {
+            console.log('formatContributionsSection - server:', server.id, 'contributions:', server.contributions);
+            const contributesTo = server.contributions ? Object.keys(server.contributions) : [];
+
+            // Calculate contributedBy from all servers
+            if (!allServers) {
+                allServers = workspaces.find(w => w.rootUri === selectedWorkspace)?.lspServers || [];
+            }
+            const contributedByMap = buildContributedByMap(allServers);
+            const contributedBy = contributedByMap[server.id] || [];
+            console.log('  contributesTo:', contributesTo, 'contributedBy:', contributedBy);
+
+            if (contributesTo.length === 0 && contributedBy.length === 0) {
+                return ''; // No contributions section if nothing to show
+            }
+
+            let html = '<div class="details-section"><h4>Contributions</h4>';
+
+            // Show "Contributes To" section
+            if (contributesTo.length > 0) {
+                html += '<div class="contribution-subsection">';
+                html += '<h5 style="color: #4ec9b0; margin-bottom: 0.5rem;">→ Contributes To</h5>';
+
+                for (const targetServerId of contributesTo) {
+                    const contributionData = server.contributions[targetServerId];
+                    html += `<div class="contribution-target" style="margin-bottom: 1rem;">`;
+                    html += `<div style="font-weight: bold; color: #dcdcaa; margin-bottom: 0.25rem;">${targetServerId}</div>`;
+
+                    // Show each contribution type (bundles, classpath, bindRequest, etc.)
+                    for (const [type, items] of Object.entries(contributionData)) {
+                        if (items && items.length > 0) {
+                            html += `<div style="margin-left: 1rem; margin-bottom: 0.5rem;">`;
+                            html += `<span style="color: #888;">${type}:</span>`;
+                            html += `<ul style="margin: 0.25rem 0 0 1.5rem; padding: 0; color: #aaa; font-size: 0.9rem;">`;
+                            items.forEach(item => {
+                                const displayValue = typeof item === 'string' ? item : JSON.stringify(item);
+                                html += `<li style="margin-bottom: 0.2rem; word-break: break-all;">${escapeHtml(displayValue)}</li>`;
+                            });
+                            html += `</ul></div>`;
+                        }
+                    }
+                    html += `</div>`;
+                }
+                html += '</div>';
+            }
+
+            // Show "Contributed By" section grouped by contribution type
+            if (contributedBy.length > 0) {
+                html += '<div class="contribution-subsection" style="margin-top: 1rem;">';
+                html += '<h5 style="color: #ce9178; margin-bottom: 0.5rem;">← Contributed By</h5>';
+
+                // Group contributions by type (bundles, bindRequest, classpath, etc.)
+                const contributionsByType = {};
+
+                contributedBy.forEach(contributorServerId => {
+                    // Find the contributor server in allServers to get its contributions
+                    const contributorServer = allServers.find(s => s.id === contributorServerId);
+                    if (!contributorServer || !contributorServer.contributions) {
+                        return;
+                    }
+
+                    // Get what this contributor gives to the current server
+                    const contributionData = contributorServer.contributions[server.id];
+                    if (!contributionData) {
+                        return;
+                    }
+
+                    // Group by type
+                    for (const [type, items] of Object.entries(contributionData)) {
+                        if (items && items.length > 0) {
+                            if (!contributionsByType[type]) {
+                                contributionsByType[type] = [];
+                            }
+                            items.forEach(item => {
+                                contributionsByType[type].push({
+                                    server: contributorServerId,
+                                    value: item
+                                });
+                            });
+                        }
+                    }
+                });
+
+                // Display grouped by type
+                for (const [type, contributions] of Object.entries(contributionsByType)) {
+                    html += `<div style="margin-bottom: 1rem;">`;
+                    html += `<div style="font-weight: bold; color: #888; margin-bottom: 0.5rem;">${type} <span style="color: #666;">(Total: ${contributions.length})</span></div>`;
+                    html += `<div style="margin-left: 1rem;">`;
+
+                    contributions.forEach(contrib => {
+                        const displayValue = typeof contrib.value === 'string' ? contrib.value : JSON.stringify(contrib.value);
+                        html += `<div style="margin-bottom: 0.3rem; color: #aaa; font-size: 0.9rem;">`;
+                        html += `<span style="display: inline-block; min-width: 120px; color: #dcdcaa;">${contrib.server}</span>`;
+                        html += `<span style="color: #569cd6;">•</span> `;
+                        html += `<span style="word-break: break-all;">${escapeHtml(displayValue)}</span>`;
+                        html += `</div>`;
+                    });
+
+                    html += `</div></div>`;
+                }
+
+                html += '</div>';
+            }
+
+            html += '</div>';
+            return html;
         }
 
         function switchConsoleTab(tabName) {
@@ -1136,6 +1359,20 @@
             if (tracesControls) {
                 tracesControls.style.display = tabName === 'traces' ? 'flex' : 'none';
             }
+        }
+
+        function switchServerTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Update tab panels
+            document.querySelectorAll('.tab-panel').forEach(panel => {
+                panel.classList.remove('active');
+            });
+            document.getElementById('server-' + tabName + '-tab').classList.add('active');
         }
 
         async function runInstaller(serverId) {
@@ -2486,5 +2723,8 @@
             }
         }
 
-        // Initialize WebSocket connection (replaces all SSE and polling)
-        connectAdminWebSocket();
+        // Initialize: load server configs first, then connect WebSocket
+        (async function init() {
+            await loadServerConfigs();
+            connectAdminWebSocket();
+        })();

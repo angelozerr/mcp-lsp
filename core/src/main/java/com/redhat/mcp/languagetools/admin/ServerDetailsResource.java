@@ -5,9 +5,10 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.redhat.mcp.languagetools.PathManager;
 import com.redhat.mcp.languagetools.admin.dto.ErrorResponse;
+import com.redhat.mcp.languagetools.admin.dto.ServerConfigDTO;
+import com.redhat.mcp.languagetools.admin.dto.ServerDTOBuilder;
 import com.redhat.mcp.languagetools.lsp.server.LspServerConfig;
 import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
-
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -29,20 +30,21 @@ public class ServerDetailsResource {
     @Inject
     PathManager pathManager;
 
+    @Inject
+    ServerDTOBuilder serverDTOBuilder;
+
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     @GET
     @Path("/{serverId}/details")
-    public Response getServerDetails(@PathParam("serverId") String serverId) {
+    public ServerConfigDTO getServerDetails(@PathParam("serverId") String serverId) {
         LspServerConfig config = workspaceManager.getServerConfigs().get(serverId);
 
         if (config == null) {
-            return Response.status(404).entity("{\"error\": \"Server not found\"}").build();
+            throw new NotFoundException("Server not found: " + serverId);
         }
 
-        // Convert to JSON string using Gson, then parse back to generic Map for Jackson
-        String jsonString = gson.toJson(config);
-        return Response.ok(jsonString).build();
+        return serverDTOBuilder.buildConfig(config);
     }
 
     @GET

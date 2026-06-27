@@ -2,18 +2,18 @@ package com.redhat.mcp.languagetools.admin.dto;
 
 import com.redhat.mcp.languagetools.lsp.server.ServerStatus;
 
-import java.util.List;
-
-public record LspServerDTO(
-    String id,
-    String name,
+/**
+ * Runtime state of a server in a specific workspace.
+ * This represents the dynamic state that changes during execution.
+ */
+public record ServerRuntimeDTO(
+    String serverId,
     ServerStatus status,
     String statusMessage,
     boolean isReady,
-    List<String> contributesTo,
-    ExternalInstanceInfo externalInstance,
     Long pid,
-    String command
+    String command,
+    ExternalInstanceInfo externalInstance
 ) {
     /**
      * Information about an external LSP server instance (launched by an IDE).
