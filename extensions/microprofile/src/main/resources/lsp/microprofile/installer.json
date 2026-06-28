@@ -15,7 +15,7 @@
 			"onSuccess": {
 				"configureServer": {
 					"name": "Configure MicroProfile server command",
-					"command": "java -jar \"$SERVER_HOME$/org.eclipse.lsp4mp.ls-uber.jar\"",
+					"command": "java -cp $SERVER_HOME$/org.eclipse.lsp4mp.ls-uber.jar org.eclipse.lsp4mp.ls.MicroProfileServerLauncher",
 					"update": true
 				}
 			}

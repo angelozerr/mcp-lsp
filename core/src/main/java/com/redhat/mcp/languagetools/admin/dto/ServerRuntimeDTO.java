@@ -13,7 +13,8 @@ public record ServerRuntimeDTO(
     boolean isReady,
     Long pid,
     String command,
-    ExternalInstanceInfo externalInstance
+    ExternalInstanceInfo externalInstance,
+    String parentServerId  // For extensions: the server they extend (null for normal servers)
 ) {
     /**
      * Information about an external LSP server instance (launched by an IDE).

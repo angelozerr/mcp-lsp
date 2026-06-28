@@ -38,7 +38,7 @@ public class PathManager {
     /**
      * Get the home directory for a specific LSP server (~/.mcp-languagetools/lsp/{serverId})
      */
-    public Path getServerHome(String serverId) {
+    public Path getLspServerHome(String serverId) {
         return getLspServersDir().resolve(serverId);
     }
 
@@ -94,6 +94,6 @@ public class PathManager {
         }
         return template
             .replace("$USER_HOME$", pathConfig.getRootDir().toString())
-            .replace("$SERVER_HOME$", getServerHome(serverId).toString());
+            .replace("$SERVER_HOME$", getLspServerHome(serverId).toString());
     }
 }

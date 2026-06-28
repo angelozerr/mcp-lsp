@@ -4,7 +4,7 @@ import com.redhat.mcp.languagetools.PathManager;
 import com.redhat.mcp.languagetools.lsp.server.LspServerStatusChangeEvent;
 import org.jboss.logging.Logger;
 
-import com.redhat.mcp.languagetools.lsp.ExtensionManager;
+import com.redhat.mcp.languagetools.lsp.LspContributionManager;
 import com.redhat.mcp.languagetools.lsp.LspInstanceRegistry;
 import com.redhat.mcp.languagetools.lsp.server.LspServer;
 import com.redhat.mcp.languagetools.lsp.server.LspServerConfig;
@@ -37,7 +37,7 @@ public class Workspace {
     private final LspTraceCollector traceCollector;
     private final PathManager pathManager;
     private final WorkspaceConfiguration configuration;
-    private ExtensionManager extensionManager;
+    private LspContributionManager extensionManager;
     private final Map<String, LspServer> lspServers = new ConcurrentHashMap<>();
     private final Map<String, ServerInfo> serverInfos = new ConcurrentHashMap<>();
     private final Map<String, ServerStatus> installationStatus = new ConcurrentHashMap<>();
@@ -73,10 +73,17 @@ public class Workspace {
     }
 
     /**
-     * Set extension manager for this workspace.
+     * Set LSP contribution manager for this workspace.
      */
-    public void setExtensionManager(ExtensionManager extensionManager) {
+    public void setLspContributionManager(LspContributionManager extensionManager) {
         this.extensionManager = extensionManager;
+    }
+
+    /**
+     * Get the LSP contribution manager for this workspace.
+     */
+    public LspContributionManager getLspContributionManager() {
+        return extensionManager;
     }
 
     /**
@@ -104,7 +111,7 @@ public class Workspace {
         LspServer server = LspServerFactoryRegistry.createServer(config, context);
         server.setWorkspaceConfiguration(configuration);
         if (extensionManager != null) {
-            server.setExtensionManager(extensionManager);
+            server.setLspContributionManager(extensionManager);
         }
 
         // Set up request router for bindRequest support

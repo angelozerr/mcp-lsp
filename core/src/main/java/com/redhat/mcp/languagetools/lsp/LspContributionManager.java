@@ -1,25 +1,97 @@
 package com.redhat.mcp.languagetools.lsp;
 
+import com.redhat.mcp.languagetools.PathManager;
 import com.redhat.mcp.languagetools.lsp.server.LspServerConfig;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 import java.nio.file.Path;
 import java.util.*;
 
 /**
- * Manages server extensions (VS Code-like contribution system).
+ * Manages LSP server contributions (VS Code-like contribution system).
  * Collects contributions from all server descriptors and makes them available to target servers.
+ * Application-scoped to preserve parent-child relationships across all workspaces.
  */
-public class ExtensionManager {
+@ApplicationScoped
+public class LspContributionManager {
 
-    private static final Logger LOG = Logger.getLogger(ExtensionManager.class);
+    private static final Logger LOG = Logger.getLogger(LspContributionManager.class);
 
-    private final Map<String, LspServerConfig> allConfigs;
-    private final Path serversBaseDir;
+    @Inject
+    PathManager pathManager;
 
-    public ExtensionManager(Map<String, LspServerConfig> allConfigs, Path serversBaseDir) {
+    private Map<String, LspServerConfig> allConfigs;
+    private Path serversBaseDir;
+    private final Map<String, String> parentServers = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Initialize the contribution manager with server configs.
+     * Called by WorkspaceManager after loading configs.
+     * Analyzes contributions to build parent-child relationships.
+     */
+    public void initialize(Map<String, LspServerConfig> allConfigs) {
         this.allConfigs = allConfigs;
-        this.serversBaseDir = serversBaseDir;
+        this.serversBaseDir = pathManager.getLspServersDir();
+
+        // Build parent-child relationships from contributions
+        analyzeContributions();
+    }
+
+    /**
+     * Analyze all contributions to determine parent-child relationships.
+     * A server that contributes via "classpath" to another server is its extension/child.
+     */
+    private void analyzeContributions() {
+        parentServers.clear();
+        LOG.infof("Analyzing contributions from %d servers", allConfigs.size());
+
+        for (LspServerConfig config : allConfigs.values()) {
+            LOG.infof("Checking server: %s, hasContributes: %s", config.getId(), config.getContributes() != null);
+
+            if (config.getContributes() == null) {
+                continue;
+            }
+
+            // Check all contribution targets
+            for (String targetServerId : allConfigs.keySet()) {
+                if (config.getContributes().hasContribution(targetServerId)) {
+                    LOG.infof("Server %s contributes to %s", config.getId(), targetServerId);
+                    com.google.gson.JsonElement contribution = config.getContributes().getContribution(targetServerId);
+
+                    if (contribution != null && contribution.isJsonObject()) {
+                        com.google.gson.JsonObject contribObj = contribution.getAsJsonObject();
+                        LOG.infof("Contribution has classpath: %s", contribObj.has("classpath"));
+
+                        // If contributing via classpath, register parent relationship
+                        if (contribObj.has("classpath")) {
+                            registerParentServer(config.getId(), targetServerId);
+                            LOG.infof("Registered parent relationship at startup: %s extends %s", config.getId(), targetServerId);
+                        }
+                    }
+                }
+            }
+        }
+
+        LOG.infof("Parent relationships registered: %s", parentServers);
+    }
+
+    /**
+     * Register a parent-child relationship between servers.
+     * Called when a server extends another server (e.g., via classpath contributions).
+     */
+    public void registerParentServer(String extensionId, String parentServerId) {
+        parentServers.put(extensionId, parentServerId);
+        LOG.infof("Registered parent relationship: %s extends %s", extensionId, parentServerId);
+    }
+
+    /**
+     * Get the parent server ID for an extension.
+     * Returns null if not an extension or has no parent.
+     */
+    public String getParentServerId(String extensionId) {
+        return parentServers.get(extensionId);
     }
 
     /**

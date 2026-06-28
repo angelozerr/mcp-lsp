@@ -45,33 +45,67 @@ public class ServerDTOBuilder {
         String serverId = config.getId();
         LspServer lspServer = workspace.getLspServer(serverId);
 
+        // Check if this is an extension with a parent server
+        String parentServerId = null;
+        var contributionManager = workspace.getLspContributionManager();
+        if (contributionManager != null) {
+            parentServerId = contributionManager.getParentServerId(serverId);
+        }
+
         ServerRuntimeDTO.ExternalInstanceInfo externalInfo = null;
         Long pid = null;
         String command = null;
+        ServerStatus status;
+        String statusMessage = null;
+        boolean isReady = false;
 
-        if (lspServer != null) {
-            var currentInstance = lspServer.getCurrentInstance();
-            if (currentInstance != null) {
-                externalInfo = new ServerRuntimeDTO.ExternalInstanceInfo(
-                    currentInstance.port,
-                    currentInstance.pid,
-                    true,
-                    currentInstance.clientName,
-                    currentInstance.clientVersion
-                );
+        if (parentServerId != null) {
+            // Extension: use parent server's status
+            LspServer parentServer = workspace.getLspServer(parentServerId);
+            status = workspace.getServerStatus(parentServerId);
+            isReady = parentServer != null && parentServer.isReady();
+            statusMessage = parentServer != null ? parentServer.getStatusMessage() : null;
+            pid = parentServer != null ? parentServer.getPid() : null;
+            command = parentServer != null ? parentServer.getStartCommand() : null;
+
+            if (parentServer != null) {
+                var currentInstance = parentServer.getCurrentInstance();
+                if (currentInstance != null) {
+                    externalInfo = new ServerRuntimeDTO.ExternalInstanceInfo(
+                        currentInstance.port,
+                        currentInstance.pid,
+                        true,
+                        currentInstance.clientName,
+                        currentInstance.clientVersion
+                    );
+                }
+            }
+        } else {
+            // Normal server: use its own status
+            if (lspServer != null) {
+                var currentInstance = lspServer.getCurrentInstance();
+                if (currentInstance != null) {
+                    externalInfo = new ServerRuntimeDTO.ExternalInstanceInfo(
+                        currentInstance.port,
+                        currentInstance.pid,
+                        true,
+                        currentInstance.clientName,
+                        currentInstance.clientVersion
+                    );
+                }
+
+                pid = lspServer.getPid();
+                command = lspServer.getStartCommand();
+                statusMessage = lspServer.getStatusMessage();
+                isReady = lspServer.isReady();
             }
 
-            pid = lspServer.getPid();
-            command = lspServer.getStartCommand();
+            status = workspace.getServerStatus(serverId);
         }
 
-        String statusMessage = lspServer != null ? lspServer.getStatusMessage() : null;
         if (statusMessage != null && statusMessage.length() > 100) {
             statusMessage = statusMessage.substring(0, 97) + "...";
         }
-
-        boolean isReady = lspServer != null && lspServer.isReady();
-        ServerStatus status = workspace.getServerStatus(serverId);
 
         return new ServerRuntimeDTO(
             serverId,
@@ -80,7 +114,8 @@ public class ServerDTOBuilder {
             isReady,
             pid,
             command,
-            externalInfo
+            externalInfo,
+            parentServerId
         );
     }
 }

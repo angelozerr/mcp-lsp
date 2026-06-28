@@ -21,7 +21,7 @@
       "onSuccess": {
         "configureServer": {
           "name": "Configure LemMinX server command",
-          "command": "java -jar \"${output.dir}/${output.file.name}\"",
+          "command": "java -cp \"${output.dir}/${output.file.name}\" org.eclipse.lemminx.XMLServerLauncher",
           "update": true
         }
       }

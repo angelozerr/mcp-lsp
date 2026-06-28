@@ -237,10 +237,31 @@
             console.log('WebSocket workspaces update:', newWorkspaces);
 
             // Merge runtime server data with static configs for each workspace
-            const mergedWorkspaces = newWorkspaces.map(workspace => ({
-                ...workspace,
-                lspServers: workspace.lspServers.map(mergeServerData)
-            }));
+            const mergedWorkspaces = newWorkspaces.map(workspace => {
+                const servers = workspace.lspServers.map(mergeServerData);
+
+                // Synchronize extensions with their parent servers
+                servers.forEach(server => {
+                    console.log('Checking server:', server.id, 'parentServerId:', server.parentServerId);
+                    if (server.parentServerId) {
+                        const parent = servers.find(s => s.id === server.parentServerId);
+                        console.log('Found parent:', parent ? parent.id : 'NOT FOUND', 'status:', parent?.status);
+                        if (parent) {
+                            server.status = parent.status;
+                            server.isReady = parent.isReady;
+                            server.statusMessage = parent.statusMessage;
+                            server.pid = parent.pid;
+                            server.command = parent.command;
+                            console.log('Synced', server.id, 'status to', server.status);
+                        }
+                    }
+                });
+
+                return {
+                    ...workspace,
+                    lspServers: servers
+                };
+            });
 
             // Update if data changed OR if this is the first render
             if (!workspacesRendered || JSON.stringify(mergedWorkspaces) !== JSON.stringify(workspaces)) {
@@ -286,8 +307,36 @@
          */
         function handleServerStatusChanged(event) {
             console.log('Server status changed:', event);
-            // Status change is already included in workspaces-update broadcast
-            // This is just for logging/debugging
+
+            // Find the workspace
+            const workspace = workspaces.find(w => w.rootUri === event.workspaceUri);
+            if (!workspace) {
+                return;
+            }
+
+            // Find the server that changed
+            const changedServer = workspace.lspServers.find(s => s.id === event.serverId);
+            if (!changedServer) {
+                return;
+            }
+
+            // Update the server's status
+            changedServer.status = event.newStatus;
+
+            // If this server is a parent, update all its extensions
+            const extensions = workspace.lspServers.filter(s => s.parentServerId === event.serverId);
+            for (const ext of extensions) {
+                ext.status = event.newStatus;
+                ext.isReady = changedServer.isReady;
+                ext.statusMessage = changedServer.statusMessage;
+                ext.pid = changedServer.pid;
+                ext.command = changedServer.command;
+            }
+
+            // Re-render if this workspace is selected
+            if (selectedWorkspace === event.workspaceUri) {
+                renderServers(workspace.lspServers);
+            }
         }
 
         function switchTab(tab, element) {
@@ -882,14 +931,12 @@
                             ${server.name}${extensionBadge}
                         </div>
                         <div class="server-id" ${(() => { const info = formatContributeInfo(server, contributedByMap); return info.tooltip ? `title="${info.tooltip}"` : ''; })()}>${server.id}${(() => formatContributeInfo(server, contributedByMap).text)()}</div>
-                        ${!server.isExtension ? `
                         <div>
                             <span class="status-badge ${server.status === 'RUNNING' && !server.isReady ? 'status-running-not-ready' : 'status-' + server.status.toLowerCase()}">${formatStatusLabel(server.status, server.externalInstance)}</span>
                             ${server.statusMessage ? `<span class="server-status-message" style="color: #888; font-size: 0.85rem; margin-left: 0.5rem;">${escapeHtml(server.statusMessage)}</span>` : ''}
-                            ${ideInfo}
-                            ${server.pid ? `<span class="server-ide-info"><span title="Process ID">${server.pid}</span></span>` : ''}
+                            ${!server.isExtension ? ideInfo : ''}
+                            ${!server.isExtension && server.pid ? `<span class="server-ide-info"><span title="Process ID">${server.pid}</span></span>` : ''}
                         </div>
-                        ` : ''}
                         <div class="server-actions">
                             ${actions}
                         </div>

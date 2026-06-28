@@ -1,20 +1,29 @@
 package com.redhat.mcp.languagetools.lsp.server;
 
+import com.redhat.mcp.languagetools.ApplicationContext;
 import com.redhat.mcp.languagetools.PathManager;
+import com.redhat.mcp.languagetools.WorkspaceContext;
 import com.redhat.mcp.languagetools.lsp.trace.LspTraceCollector;
 
-import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Context object containing dependencies needed to create LSP server instances.
- * This interface isolates the factory API from internal implementation details.
+ * LSP-specific context object containing dependencies needed to create LSP server instances.
+ * Extends WorkspaceContext with LSP-specific methods.
+ * This interface provides a stable API - when adding new dependencies, add them here
+ * instead of changing all server constructors.
  */
-public interface LspServerContext {
+public interface LspServerContext extends WorkspaceContext {
+
+    /**
+     * Get the application-level context (shared across all workspaces).
+     */
+    ApplicationContext getApplicationContext();
 
     /**
      * Get the path manager for resolving file system paths.
+     * Convenience method that delegates to getApplicationContext().getPathManager().
      */
     PathManager getPathManager();
 
@@ -24,19 +33,9 @@ public interface LspServerContext {
     List<LspServerConfig> getAllServerConfigs();
 
     /**
-     * Get the workspace root URI.
+     * Get the LSP server installation directory.
      */
-    URI getWorkspaceRoot();
-
-    /**
-     * Get the workspace data directory.
-     */
-    Path getWorkspaceDataDir();
-
-    /**
-     * Get the server installation directory.
-     */
-    Path getServerHome();
+    Path getLspServerHome();
 
     /**
      * Get the trace collector for LSP messages.

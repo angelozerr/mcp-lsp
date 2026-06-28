@@ -24,6 +24,7 @@ public class LspServerFactoryRegistry {
      * Private implementation of LspServerContext.
      */
     private static class LspServerContextImpl implements LspServerContext {
+        private final com.redhat.mcp.languagetools.ApplicationContext applicationContext;
         private final PathManager pathManager;
         private final List<LspServerConfig> allServerConfigs;
         private final URI workspaceRoot;
@@ -40,6 +41,19 @@ public class LspServerFactoryRegistry {
             this.workspaceDataDir = workspaceDataDir;
             this.serverHome = serverHome;
             this.traceCollector = traceCollector;
+
+            // Create ApplicationContext wrapper
+            this.applicationContext = new com.redhat.mcp.languagetools.ApplicationContext() {
+                @Override
+                public PathManager getPathManager() {
+                    return pathManager;
+                }
+            };
+        }
+
+        @Override
+        public com.redhat.mcp.languagetools.ApplicationContext getApplicationContext() {
+            return applicationContext;
         }
 
         @Override
@@ -63,7 +77,7 @@ public class LspServerFactoryRegistry {
         }
 
         @Override
-        public Path getServerHome() {
+        public Path getLspServerHome() {
             return serverHome;
         }
 
@@ -71,6 +85,7 @@ public class LspServerFactoryRegistry {
         public LspTraceCollector getTraceCollector() {
             return traceCollector;
         }
+
     }
 
     static {

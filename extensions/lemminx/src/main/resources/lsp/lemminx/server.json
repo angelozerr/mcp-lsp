@@ -2,10 +2,7 @@
   "id": "lemminx",
   "name": "LemMinX (XML Language Server)",
   "description": "XML language server based on Eclipse LemMinX",
-  "command": {
-    "windows": "java -jar \"${serverHome}/lemminx.jar\"",
-    "default": "java -jar \"${serverHome}/lemminx.jar\""
-  },
+  "command": "java -cp \"${serverHome}/lemminx.jar\" org.eclipse.lemminx.XMLServerLauncher",
   "documentSelector": [
     {
       "language": "xml"

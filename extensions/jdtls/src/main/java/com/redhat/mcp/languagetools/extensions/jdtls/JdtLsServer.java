@@ -219,7 +219,7 @@ public class JdtLsServer extends LspServer {
      */
     private Path getContributorServerHome(String serverId) {
         // Server homes are in ~/.mcp-languagetools/lsp/{serverId}/
-        return pathManager.getServerHome(serverId);
+        return pathManager.getLspServerHome(serverId);
     }
 
     /**
@@ -268,7 +268,7 @@ public class JdtLsServer extends LspServer {
         String normalizedPath = bundlePattern.startsWith("./") ? bundlePattern.substring(2) : bundlePattern;
 
         // Target directory on filesystem
-        Path targetServerHome = pathManager.getServerHome(serverId);
+        Path targetServerHome = pathManager.getLspServerHome(serverId);
 
         try {
             Files.createDirectories(targetServerHome);

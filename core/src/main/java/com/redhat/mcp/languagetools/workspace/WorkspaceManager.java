@@ -48,6 +48,9 @@ public class WorkspaceManager {
     ServerDescriptorLoader serverDescriptorLoader;
 
     @Inject
+    com.redhat.mcp.languagetools.lsp.LspContributionManager lspContributionManager;
+
+    @Inject
     LspTraceCollector traceCollector;
 
     @Inject
@@ -78,6 +81,9 @@ public class WorkspaceManager {
         // Load all bundled server descriptors
         serverConfigs.putAll(serverDescriptorLoader.loadAllBundled());
 
+        // Initialize contribution manager with loaded configs
+        initializeLspContributionManager();
+
         LOG.infof("Loaded %d LSP server descriptors", serverConfigs.size());
     }
 
@@ -87,12 +93,10 @@ public class WorkspaceManager {
     }
 
     /**
-     * Create extension manager for collecting server contributions.
+     * Initialize the LspContributionManager with current server configs.
      */
-    private ExtensionManager createExtensionManager() {
-        // Use PathManager for servers directory
-        Path baseDir = pathManager.getLspServersDir();
-        return new ExtensionManager(serverConfigs, baseDir);
+    private void initializeLspContributionManager() {
+        lspContributionManager.initialize(serverConfigs);
     }
 
     /**
@@ -185,8 +189,8 @@ public class WorkspaceManager {
                                  config.getName(), externalInstance.port, externalInstance.pid);
 
                         // No need to install, use a dummy serverHome (won't be used for socket connection)
-                        Path dummyHome = pathManager.getServerHome(config.getId());
-                        workspace.setExtensionManager(createExtensionManager());
+                        Path dummyHome = pathManager.getLspServerHome(config.getId());
+                        workspace.setLspContributionManager(lspContributionManager);
                         workspace.addLspServer(config, dummyHome, new ArrayList<>(serverConfigs.values()));
 
                         // Start and initialize (will connect to socket)
@@ -221,7 +225,7 @@ public class WorkspaceManager {
                                 workspace.setInstallationStatus(config.getId(), null);
 
                                 // Add server to workspace
-                                workspace.setExtensionManager(createExtensionManager());
+                                workspace.setLspContributionManager(lspContributionManager);
                                 workspace.addLspServer(config, serverHome, new ArrayList<>(serverConfigs.values()));
 
                                 // Start and initialize
@@ -310,7 +314,7 @@ public class WorkspaceManager {
             // Create context
             InstallerContext context = new InstallerContext();
             context.setProperty("server.id", config.getId());
-            context.setProperty("server.home", pathManager.getServerHome(config.getId()).toString());
+            context.setProperty("server.home", pathManager.getLspServerHome(config.getId()).toString());
             context.setTraceCollector(traceCollector, workspaceUri.toString(), config.getId(), config.getName());
 
             // Create task registry
@@ -325,10 +329,18 @@ public class WorkspaceManager {
                     // Already installed, get the directory from context or default
                     String homeDir = context.getPropertyAsString("output.dir");
                     if (homeDir == null) {
-                        homeDir = pathManager.getServerHome(config.getId()).toString();
+                        homeDir = pathManager.getLspServerHome(config.getId()).toString();
                     }
                     Path home = Paths.get(homeDir);
                     serverHomes.put(config.getId(), home);
+
+                    // Update config command from installer if present
+                    String installedCommand = context.getPropertyAsString("server.command");
+                    if (installedCommand != null) {
+                        config.setCommand(installedCommand);
+                        LOG.infof("%s command updated from installer: %s", config.getName(), installedCommand);
+                    }
+
                     LOG.infof("%s already installed at: %s", config.getName(), home);
                     return CompletableFuture.completedFuture(home);
                 }
@@ -348,6 +360,14 @@ public class WorkspaceManager {
                             if (homeDir != null) {
                                 Path home = Paths.get(homeDir);
                                 serverHomes.put(config.getId(), home);
+
+                                // Update config command from installer if present
+                                String installedCommand = context.getPropertyAsString("server.command");
+                                if (installedCommand != null) {
+                                    config.setCommand(installedCommand);
+                                    LOG.infof("%s command updated from installer: %s", config.getName(), installedCommand);
+                                }
+
                                 LOG.infof("%s installed successfully at: %s", config.getName(), home);
                                 return home;
                             }
@@ -545,7 +565,7 @@ public class WorkspaceManager {
                     workspace.setInstallationStatus(serverId, null);
 
                     // Add server to workspace
-                    workspace.setExtensionManager(createExtensionManager());
+                    workspace.setLspContributionManager(lspContributionManager);
                     workspace.addLspServer(config, serverHome, new ArrayList<>(serverConfigs.values()));
 
                     // Start MCP-managed (do not connect to IDE)

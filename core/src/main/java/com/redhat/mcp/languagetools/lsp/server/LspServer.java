@@ -45,6 +45,7 @@ public class LspServer {
     private static final Logger LOG = Logger.getLogger(LspServer.class);
 
     protected final LspServerConfig config;
+    protected final LspServerContext context;
     protected final URI workspaceRoot;
     protected final Path workspaceDataDir;
     protected final Path serverHome;
@@ -65,7 +66,7 @@ public class LspServer {
     private LspInstanceRegistry.InstanceInfo currentInstance;
     protected volatile boolean isReady = false;
     protected com.redhat.mcp.languagetools.workspace.WorkspaceConfiguration workspaceConfiguration;
-    protected ExtensionManager extensionManager;
+    protected LspContributionManager extensionManager;
     protected RequestRouter requestRouter;
     private java.util.function.Consumer<ServerStatus> statusChangeCallback;
     private LspClientFeatures clientFeatures;
@@ -76,9 +77,10 @@ public class LspServer {
 
     public LspServer(LspServerConfig config, LspServerContext context) {
         this.config = config;
+        this.context = context;
         this.workspaceRoot = context.getWorkspaceRoot();
         this.workspaceDataDir = context.getWorkspaceDataDir();
-        this.serverHome = context.getServerHome();
+        this.serverHome = context.getLspServerHome();
         this.tracing = new TracingMessageConsumer(context.getTraceCollector(), workspaceRoot.toString(), config.getId(), config.getName());
         this.executorService = Executors.newCachedThreadPool();
         this.allServerConfigs = context.getAllServerConfigs() != null ? context.getAllServerConfigs() : List.of();
@@ -86,6 +88,10 @@ public class LspServer {
 
         // Create client features for managing capabilities
         this.clientFeatures = new LspClientFeatures(config);
+    }
+
+    public LspServerContext getContext() {
+        return context;
     }
 
     /**
@@ -792,6 +798,7 @@ public class LspServer {
         return config;
     }
 
+
     public ServerStatus getStatus() {
         return status;
     }
@@ -896,14 +903,14 @@ public class LspServer {
     /**
      * Set extension manager (called by Workspace after server creation).
      */
-    public void setExtensionManager(ExtensionManager extensionManager) {
+    public void setLspContributionManager(LspContributionManager extensionManager) {
         this.extensionManager = extensionManager;
     }
 
     /**
      * Get extension manager.
      */
-    protected ExtensionManager getExtensionManager() {
+    protected LspContributionManager getLspContributionManager() {
         return extensionManager;
     }
 

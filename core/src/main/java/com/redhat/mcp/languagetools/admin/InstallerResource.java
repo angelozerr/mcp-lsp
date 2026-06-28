@@ -90,7 +90,7 @@ public class InstallerResource {
             InstallerContext context = new InstallerContext();
             context.setProperty("workspace", workspaceUri.toString());
             context.setProperty("server.id", serverId);
-            context.setProperty("server.home", pathManager.getServerHome(serverId).toString());
+            context.setProperty("server.home", pathManager.getLspServerHome(serverId).toString());
             context.setTraceCollector(traceCollector, workspaceUri.toString(), serverId, config.getName());
 
             // Create task registry and load tasks
