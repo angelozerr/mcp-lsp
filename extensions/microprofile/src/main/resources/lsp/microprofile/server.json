@@ -2,10 +2,7 @@
   "id": "microprofile",
   "name": "MicroProfile Language Server",
   "description": "Language server for MicroProfile properties files",
-  "command": {
-    "windows": "java -jar ${serverHome}/org.eclipse.lsp4mp.ls-uber.jar",
-    "default": "java -jar ${serverHome}/org.eclipse.lsp4mp.ls-uber.jar"
-  },
+  "command": "java -jar ${serverHome}/org.eclipse.lsp4mp.ls-uber.jar",
   "documentSelector": [
     {
       "language": "java"
@@ -25,16 +22,24 @@
       "bundles": ["plugins/*.jar"],
       "bindRequest": [
         "microprofile/java/projectInfo",
-        "microprofile/java/definition",
-        "microprofile/java/hover",
+		"microprofile/propertyDefinition",
+		"microprofile/propertyDocumentation",
         "microprofile/java/codeAction",
+		"microprofile/java/codeActionResolve",		
         "microprofile/java/codeLens",
         "microprofile/java/completion",
+		"microprofile/java/definition",
         "microprofile/java/diagnostics",
+		"microprofile/java/hover",
+		"microprofile/java/inlayHint",
+		"microprofile/java/workspaceSymbols",
         "microprofile/java/fileInfo",
         "microprofile/java/projectLabels",
-        "microprofile/java/workspaceSymbols"
-      ]
+		"microprofile/java/workspaceLabels"
+      ],
+	  "bindNotification": [
+		"microprofile/propertiesChanged"
+	  ]
     }
   }
 }

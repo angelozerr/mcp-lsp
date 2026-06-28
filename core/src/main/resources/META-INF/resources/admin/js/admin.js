@@ -1315,7 +1315,13 @@
                             html += `<ul style="margin: 0.25rem 0 0 1.5rem; padding: 0; color: #aaa; font-size: 0.9rem;">`;
                             items.forEach(item => {
                                 const displayValue = typeof item === 'string' ? item : JSON.stringify(item);
-                                html += `<li style="margin-bottom: 0.2rem; word-break: break-all;">${escapeHtml(displayValue)}</li>`;
+                                const isError = displayValue.startsWith('ERROR:');
+                                const cleanValue = isError ? displayValue.substring(6) : displayValue;
+                                const style = isError
+                                    ? 'color: #ff6b6b; font-weight: bold; cursor: help;'
+                                    : '';
+                                const title = isError ? 'File not found or pattern did not match any files' : '';
+                                html += `<li style="margin-bottom: 0.2rem; word-break: break-all; ${style}" ${title ? `title="${title}"` : ''}>${escapeHtml(cleanValue)}</li>`;
                             });
                             html += `</ul></div>`;
                         }
@@ -1370,10 +1376,16 @@
 
                     contributions.forEach(contrib => {
                         const displayValue = typeof contrib.value === 'string' ? contrib.value : JSON.stringify(contrib.value);
+                        const isError = displayValue.startsWith('ERROR:');
+                        const cleanValue = isError ? displayValue.substring(6) : displayValue;
+                        const valueStyle = isError
+                            ? 'word-break: break-all; color: #ff6b6b; font-weight: bold; cursor: help;'
+                            : 'word-break: break-all;';
+                        const title = isError ? 'File not found or pattern did not match any files' : '';
                         html += `<div style="margin-bottom: 0.3rem; color: #aaa; font-size: 0.9rem;">`;
                         html += `<span style="display: inline-block; min-width: 120px; color: #dcdcaa;">${contrib.server}</span>`;
                         html += `<span style="color: #569cd6;">•</span> `;
-                        html += `<span style="word-break: break-all;">${escapeHtml(displayValue)}</span>`;
+                        html += `<span style="${valueStyle}" ${title ? `title="${title}"` : ''}>${escapeHtml(cleanValue)}</span>`;
                         html += `</div>`;
                     });
 

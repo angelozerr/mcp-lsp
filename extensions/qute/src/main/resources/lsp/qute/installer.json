@@ -1,0 +1,24 @@
+{
+	"id": "qute",
+	"name": "Qute Language Server",
+	"check": {
+		"fileExists": {
+			"name": "Check if Qute is installed",
+			"file": "$SERVER_HOME$/com.redhat.qute.ls-uber.jar"
+		}
+	},
+	"run": {
+		"copy": {
+			"name": "Copy Qute LS JAR",
+			"source": "/lsp/qute/lib/com.redhat.qute.ls-uber.jar",
+			"destination": "$SERVER_HOME$/com.redhat.qute.ls-uber.jar",
+			"onSuccess": {
+				"configureServer": {
+					"name": "Configure Qute server command",
+					"command": "java -jar \"$SERVER_HOME$/com.redhat.qute.ls-uber.jar\"",
+					"update": true
+				}
+			}
+		}
+	}
+}

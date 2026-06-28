@@ -112,9 +112,9 @@ public class ContributionDTOBuilder {
                 if (Files.exists(filePath)) {
                     resolved.add(filePath.toAbsolutePath().toString());
                 } else {
-                    // Keep original pattern if file doesn't exist
-                    resolved.add(pattern);
-                    LOG.debugf("File not found: %s (from %s)", filePath, contributorServerId);
+                    // Mark as error if file doesn't exist
+                    resolved.add("ERROR:" + pattern);
+                    LOG.warnf("File not found: %s (from %s)", filePath, contributorServerId);
                 }
             }
         }
@@ -152,12 +152,18 @@ public class ContributionDTOBuilder {
                          });
                 }
             } else {
-                LOG.debugf("Directory not found: %s (keeping pattern as-is)", searchDir);
-                resolved.add(normalizedPath); // Keep original pattern if dir doesn't exist
+                LOG.warnf("Directory not found: %s", searchDir);
+                resolved.add("ERROR:" + normalizedPath); // Mark as error if dir doesn't exist
             }
         } catch (IOException e) {
-            LOG.warnf("Failed to expand glob pattern %s: %s (keeping pattern as-is)", normalizedPath, e.getMessage());
-            resolved.add(normalizedPath); // Keep original pattern on error
+            LOG.warnf("Failed to expand glob pattern %s: %s", normalizedPath, e.getMessage());
+            resolved.add("ERROR:" + normalizedPath); // Mark as error on exception
+        }
+
+        // If no files matched the pattern, mark as error
+        if (resolved.isEmpty()) {
+            LOG.warnf("No files matched pattern: %s (from %s)", normalizedPath, contributorServerId);
+            resolved.add("ERROR:" + normalizedPath);
         }
 
         return resolved;

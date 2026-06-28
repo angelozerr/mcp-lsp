@@ -3,10 +3,12 @@ package com.redhat.mcp.languagetools.lsp.server;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.redhat.mcp.languagetools.PathManager;
 import com.redhat.mcp.languagetools.lsp.Contributes;
 import com.redhat.mcp.languagetools.lsp.DocumentSelector;
 import com.redhat.mcp.languagetools.lsp.installer.InstallerConfig;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 import java.io.IOException;
@@ -29,6 +31,12 @@ import java.util.Map;
 public class ServerDescriptorLoader {
 
     private static final Logger LOG = Logger.getLogger(ServerDescriptorLoader.class);
+    private static final String LSP_RESOURCE_DIR = "lsp";
+    private static final String SERVER_CONFIG_FILE = "server.json";
+    private static final String INSTALLER_CONFIG_FILE = "installer.json";
+
+    @Inject
+    PathManager pathManager;
 
     private final Gson gson = new Gson();
 
@@ -37,8 +45,8 @@ public class ServerDescriptorLoader {
      * Expects structure: /lsp/{serverId}/server.json and optionally /lsp/{serverId}/installer.json
      */
     public LspServerConfig loadBundled(String serverId) throws IOException {
-        String serverPath = "/lsp/" + serverId + "/server.json";
-        String installerPath = "/lsp/" + serverId + "/installer.json";
+        String serverPath = buildResourcePath(serverId, SERVER_CONFIG_FILE);
+        String installerPath = buildResourcePath(serverId, INSTALLER_CONFIG_FILE);
 
         LOG.infof("Loading bundled server config: %s", serverPath);
 
@@ -98,17 +106,17 @@ public class ServerDescriptorLoader {
             ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
             // Get all /lsp/ directories from all JARs/modules in classpath
-            java.util.Enumeration<java.net.URL> lspResources = classLoader.getResources("lsp");
+            java.util.Enumeration<java.net.URL> lspResources = classLoader.getResources(LSP_RESOURCE_DIR);
 
             if (!lspResources.hasMoreElements()) {
-                LOG.warn("No /lsp directory found in classpath");
+                LOG.warnf("No /%s directory found in classpath", LSP_RESOURCE_DIR);
                 return configs;
             }
 
             // Process each /lsp directory found (can be from multiple JARs/modules)
             while (lspResources.hasMoreElements()) {
                 java.net.URL lspDirUrl = lspResources.nextElement();
-                LOG.debugf("Scanning /lsp from: %s", lspDirUrl);
+                LOG.debugf("Scanning /%s from: %s", LSP_RESOURCE_DIR, lspDirUrl);
 
                 // Handle both JAR and file system paths
                 java.net.URI lspDirUri = lspDirUrl.toURI();
@@ -117,7 +125,7 @@ public class ServerDescriptorLoader {
                 if (lspDirUri.getScheme().equals("jar")) {
                     // Running from JAR - use FileSystem
                     java.nio.file.FileSystem fs = java.nio.file.FileSystems.newFileSystem(lspDirUri, java.util.Collections.emptyMap());
-                    lspPath = fs.getPath("/lsp");
+                    lspPath = fs.getPath("/" + LSP_RESOURCE_DIR);
                 } else {
                     // Running from IDE/filesystem
                     lspPath = java.nio.file.Paths.get(lspDirUri);
@@ -255,5 +263,15 @@ public class ServerDescriptorLoader {
 
             return config;
         }
+    }
+
+    /**
+     * Build resource path for bundled server files.
+     * @param serverId Server ID
+     * @param fileName File name (e.g., "server.json", "installer.json")
+     * @return Resource path (e.g., "/lsp/jdtls/server.json")
+     */
+    private String buildResourcePath(String serverId, String fileName) {
+        return "/" + LSP_RESOURCE_DIR + "/" + serverId + "/" + fileName;
     }
 }

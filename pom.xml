@@ -17,6 +17,7 @@
         <module>extensions/lemminx</module>
         <module>extensions/microprofile</module>
         <module>extensions/quarkus</module>
+        <module>extensions/qute</module>
         <module>extensions/jdtls</module>
         <module>dev</module>
     </modules>

@@ -42,7 +42,9 @@ function renderServerDiagram(servers, currentServerId) {
     const nodes = filteredServers.map(server => ({
         id: server.id,
         label: server.name || server.id,
-        title: server.description || server.name || server.id, // tooltip
+        title: server.id === currentServerId
+            ? (server.description || server.name || server.id)
+            : `${server.description || server.name || server.id}\n\n💡 Double-click to open`, // tooltip
         color: server.id === currentServerId ? '#005a9e' : '#3a8070',
         font: {
             color: '#ffffff',
@@ -179,8 +181,15 @@ function renderServerDiagram(servers, currentServerId) {
             }
         },
         edges: {
-            width: 2,
-            selectionWidth: 3
+            width: 1,
+            selectionWidth: 2,
+            font: {
+                strokeWidth: 3,
+                strokeColor: '#1e1e1e',
+                background: '#1e1e1e',
+                size: 11
+            },
+            labelHighlightBold: false
         }
     };
 
@@ -192,13 +201,26 @@ function renderServerDiagram(servers, currentServerId) {
     // Create network
     serverDiagramNetwork = new vis.Network(container, data, options);
 
+    // Change cursor on hover
+    serverDiagramNetwork.on('hoverNode', function() {
+        container.style.cursor = 'pointer';
+    });
+    serverDiagramNetwork.on('blurNode', function() {
+        container.style.cursor = 'default';
+    });
+
     // Event: double-click on node -> switch to details of that server
     serverDiagramNetwork.on('doubleClick', function(params) {
         if (params.nodes.length > 0) {
             const clickedServerId = params.nodes[0];
-            console.log('Double-clicked on server:', clickedServerId);
 
-            // Switch to details of this server
+            // Don't switch if clicking on the same server
+            if (clickedServerId === currentServerId) {
+                console.log('Already viewing this server:', clickedServerId);
+                return;
+            }
+
+            console.log('Double-clicked on server:', clickedServerId);
             showServerDetails(clickedServerId);
         }
     });
@@ -248,7 +270,9 @@ function renderWorkspaceDiagram(servers, currentServerId) {
     const nodes = filteredServers.map(server => ({
         id: server.id,
         label: server.name || server.id,
-        title: server.description || server.name || server.id, // tooltip
+        title: server.id === currentServerId
+            ? (server.description || server.name || server.id)
+            : `${server.description || server.name || server.id}\n\n💡 Double-click to open`, // tooltip
         color: server.id === currentServerId ? '#005a9e' : '#3a8070',
         font: {
             color: '#ffffff',
@@ -385,8 +409,15 @@ function renderWorkspaceDiagram(servers, currentServerId) {
             }
         },
         edges: {
-            width: 2,
-            selectionWidth: 3
+            width: 1,
+            selectionWidth: 2,
+            font: {
+                strokeWidth: 3,
+                strokeColor: '#1e1e1e',
+                background: '#1e1e1e',
+                size: 11
+            },
+            labelHighlightBold: false
         }
     };
 
@@ -398,13 +429,26 @@ function renderWorkspaceDiagram(servers, currentServerId) {
     // Create network
     workspaceDiagramNetwork = new vis.Network(container, data, options);
 
+    // Change cursor on hover
+    workspaceDiagramNetwork.on('hoverNode', function() {
+        container.style.cursor = 'pointer';
+    });
+    workspaceDiagramNetwork.on('blurNode', function() {
+        container.style.cursor = 'default';
+    });
+
     // Event: double-click on node -> switch to details of that server
     workspaceDiagramNetwork.on('doubleClick', function(params) {
         if (params.nodes.length > 0) {
             const clickedServerId = params.nodes[0];
-            console.log('Double-clicked on workspace server:', clickedServerId);
 
-            // Switch to overview tab for this server
+            // Don't switch if clicking on the same server
+            if (clickedServerId === currentServerId) {
+                console.log('Already viewing this server:', clickedServerId);
+                return;
+            }
+
+            console.log('Double-clicked on workspace server:', clickedServerId);
             switchConsoleTab('overview');
             loadServerDetails(clickedServerId);
         }

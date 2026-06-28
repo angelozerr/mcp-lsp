@@ -45,6 +45,12 @@
         </dependency>
         <dependency>
             <groupId>com.redhat.mcp</groupId>
+            <artifactId>qute-extension</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.redhat.mcp</groupId>
             <artifactId>jdtls-extension</artifactId>
             <version>${project.version}</version>
             <scope>runtime</scope>

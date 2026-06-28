@@ -1,0 +1,42 @@
+{
+  "id": "qute",
+  "name": "Qute Language Server",
+  "description": "Qute template engine support",
+  "command": "java -jar ${serverHome}/com.redhat.qute.ls-uber.jar",
+  "documentSelector": [
+    {
+      "language": "qute-html"
+    },
+    {
+      "language": "qute-json"
+    },
+    {
+      "language": "qute-yaml"
+    },
+    {
+      "language": "qute-txt"
+    }
+  ],
+  "contributes": {
+    "jdtls": {
+      "bundles": ["plugins/*.jar"],
+      "bindRequest": [
+        "qute/template/projects",
+        "qute/template/project",
+        "qute/template/projectDataModel",
+        "qute/template/binaryTemplates",
+        "qute/template/javaTypes",
+        "qute/template/resolvedJavaType",
+        "qute/template/javaDefinition",
+        "qute/template/javadoc",
+        "qute/template/generateMissingJavaMember",
+        "qute/java/codeLens",
+        "qute/java/diagnostics",
+        "qute/java/documentLink"
+      ],
+      "bindNotification": [
+        "qute/dataModelChanged"
+      ]
+    }
+  }
+}
