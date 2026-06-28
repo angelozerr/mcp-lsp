@@ -83,7 +83,7 @@ public class ExtensionManager {
 
     /**
      * Resolve extension path relative to the contributor server's directory.
-     * Handles paths like "./jars/plugin.jar" or "./server/extension.jar"
+     * Handles paths like "./jars/plugin.jar" or glob patterns like "lib/*.jar"
      */
     private Path resolveExtensionPath(String contributorServerId, String extensionPath) {
         // Remove leading "./" if present
@@ -91,6 +91,13 @@ public class ExtensionManager {
 
         // Resolve relative to the contributor server's directory
         Path serverDir = serversBaseDir.resolve(contributorServerId);
+
+        // Check if pattern contains glob characters
+        if (normalizedPath.contains("*") || normalizedPath.contains("?")) {
+            LOG.warnf("Glob pattern detected: %s - use resolveExtensionPaths() instead", extensionPath);
+            return null;
+        }
+
         Path resolved = serverDir.resolve(normalizedPath);
 
         if (!java.nio.file.Files.exists(resolved)) {
@@ -102,18 +109,79 @@ public class ExtensionManager {
     }
 
     /**
-     * Resolve multiple extension paths.
+     * Resolve multiple extension paths (supports glob patterns like "lib/*.jar").
      */
     public List<Path> resolveExtensionPaths(String contributorServerId, List<String> extensionPaths) {
         List<Path> resolved = new ArrayList<>();
         if (extensionPaths != null) {
-            for (String path : extensionPaths) {
-                Path absolutePath = resolveExtensionPath(contributorServerId, path);
-                if (absolutePath != null) {
-                    resolved.add(absolutePath);
-                }
+            for (String pathPattern : extensionPaths) {
+                resolved.addAll(resolvePathPattern(contributorServerId, pathPattern));
             }
         }
         return resolved;
+    }
+
+    /**
+     * Resolve a single path pattern (simple path or glob).
+     * Returns a list because a glob can match multiple files.
+     */
+    private List<Path> resolvePathPattern(String contributorServerId, String pathPattern) {
+        List<Path> matches = new ArrayList<>();
+
+        // Remove leading "./" if present
+        String normalizedPath = pathPattern.startsWith("./") ? pathPattern.substring(2) : pathPattern;
+        Path serverDir = serversBaseDir.resolve(contributorServerId);
+
+        // Check if pattern contains glob characters
+        if (!normalizedPath.contains("*") && !normalizedPath.contains("?")) {
+            // Simple path - resolve directly
+            Path resolved = serverDir.resolve(normalizedPath);
+            if (java.nio.file.Files.exists(resolved)) {
+                matches.add(resolved);
+            } else {
+                LOG.warnf("Extension not found: %s (from server %s)", resolved, contributorServerId);
+            }
+            return matches;
+        }
+
+        // Glob pattern - expand it
+        try {
+            // Split pattern into directory and file parts
+            int lastSlash = normalizedPath.lastIndexOf('/');
+            Path baseDir;
+            String glob;
+
+            if (lastSlash > 0) {
+                // Pattern like "lib/*.jar"
+                String dirPart = normalizedPath.substring(0, lastSlash);
+                glob = normalizedPath.substring(lastSlash + 1);
+                baseDir = serverDir.resolve(dirPart);
+            } else {
+                // Pattern like "*.jar" in server root
+                glob = normalizedPath;
+                baseDir = serverDir;
+            }
+
+            if (!java.nio.file.Files.exists(baseDir)) {
+                LOG.warnf("Base directory not found for glob pattern %s: %s (from server %s)",
+                         pathPattern, baseDir, contributorServerId);
+                return matches;
+            }
+
+            // Use PathMatcher to match files
+            final java.nio.file.PathMatcher matcher = baseDir.getFileSystem().getPathMatcher("glob:" + glob);
+            try (java.util.stream.Stream<Path> stream = java.nio.file.Files.list(baseDir)) {
+                stream.filter(path -> matcher.matches(path.getFileName()))
+                      .forEach(matches::add);
+            }
+
+            LOG.infof("Glob pattern %s expanded to %d files (from server %s)",
+                     pathPattern, matches.size(), contributorServerId);
+
+        } catch (java.io.IOException e) {
+            LOG.errorf(e, "Failed to expand glob pattern: %s (from server %s)", pathPattern, contributorServerId);
+        }
+
+        return matches;
     }
 }

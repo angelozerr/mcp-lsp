@@ -13,12 +13,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Generic LSP server that supports classpath extensions via jarExtensions.
+ * Generic LSP server that supports classpath extensions.
  * Used for servers like MicroProfile LS, Lemminx, etc. that can be extended by adding JARs to their classpath.
  *
  * Any server can receive contributions with the format:
  * {
- *   "jarExtensions": ["./server/extension.jar"],
+ *   "classpath": ["./server/extension.jar"],
  *   "documentSelector": [{"language": "xml"}]
  * }
  */
@@ -31,30 +31,36 @@ public class ClasspathExtensibleLspServer extends LspServer {
     }
 
     /**
-     * Build command with jarExtensions added to classpath.
+     * Build command with classpath contributions added.
      * Expects the base command to use -jar or -cp, and injects extensions.
      */
     @Override
     protected List<String> buildCommand() throws IOException {
+        LOG.infof("ClasspathExtensibleLspServer.buildCommand() called for %s", config.getId());
+
         // Get base command from config
         List<String> baseCommand = super.buildCommand();
+        LOG.infof("Base command for %s: %s", config.getId(), String.join(" ", baseCommand));
 
-        // Collect jarExtensions for this server
-        List<Path> jarExtensions = collectJarExtensions();
+        // Collect classpath contributions for this server
+        List<Path> classpathExtensions = collectClasspathExtensions();
+        LOG.infof("Collected %d classpath extensions for %s", classpathExtensions.size(), config.getId());
 
-        if (jarExtensions.isEmpty()) {
+        if (classpathExtensions.isEmpty()) {
             // No extensions, return base command as-is
+            LOG.infof("No classpath extensions, returning base command for %s", config.getId());
             return baseCommand;
         }
 
         // Inject extensions into classpath
-        return injectClasspathExtensions(baseCommand, jarExtensions);
+        LOG.infof("Injecting %d extensions into %s classpath", classpathExtensions.size(), config.getId());
+        return injectClasspathExtensions(baseCommand, classpathExtensions);
     }
 
     /**
-     * Collect all jarExtensions contributed to this server.
+     * Collect all classpath contributions to this server.
      */
-    private List<Path> collectJarExtensions() {
+    private List<Path> collectClasspathExtensions() {
         List<Path> extensions = new ArrayList<>();
 
         if (extensionManager == null) {
@@ -70,17 +76,17 @@ public class ClasspathExtensibleLspServer extends LspServer {
             if (contribution.isJsonObject()) {
                 JsonObject contribObj = contribution.getAsJsonObject();
 
-                // Extract jarExtensions
-                if (contribObj.has("jarExtensions")) {
-                    JsonArray jarExtensions = contribObj.getAsJsonArray("jarExtensions");
-                    List<String> jarPaths = new ArrayList<>();
+                // Extract classpath
+                if (contribObj.has("classpath")) {
+                    JsonArray jarsArray = contribObj.getAsJsonArray("classpath");
 
-                    jarExtensions.forEach(el -> jarPaths.add(el.getAsString()));
+                    List<String> jarPaths = new ArrayList<>();
+                    jarsArray.forEach(el -> jarPaths.add(el.getAsString()));
 
                     List<Path> resolvedJars = extensionManager.resolveExtensionPaths(contributorId, jarPaths);
                     extensions.addAll(resolvedJars);
 
-                    LOG.infof("Added %d jarExtensions from %s to %s classpath",
+                    LOG.infof("Added %d classpath entries from %s to %s",
                              resolvedJars.size(), contributorId, config.getId());
                 }
 
@@ -137,11 +143,11 @@ public class ClasspathExtensibleLspServer extends LspServer {
         }
 
         if (!foundClasspath) {
-            LOG.warnf("Could not inject jarExtensions into %s command (no -cp or -jar found)", config.getId());
+            LOG.warnf("Could not inject classpath contributions into %s command (no -cp or -jar found)", config.getId());
             return baseCommand;
         }
 
-        LOG.infof("Injected %d jarExtensions into %s classpath", extensions.size(), config.getId());
+        LOG.infof("Injected %d classpath entries into %s", extensions.size(), config.getId());
         return newCommand;
     }
 

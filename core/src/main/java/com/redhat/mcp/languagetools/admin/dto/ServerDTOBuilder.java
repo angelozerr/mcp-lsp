@@ -33,7 +33,8 @@ public class ServerDTOBuilder {
             config.getEnv(),
             config.getWorkingDirectory(),
             config.getInitializationOptions(),
-            contributionBuilder.buildContributions(config)
+            contributionBuilder.buildContributions(config),
+            config.isExtension()
         );
     }
 

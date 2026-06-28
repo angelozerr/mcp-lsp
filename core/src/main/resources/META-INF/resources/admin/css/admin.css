@@ -1158,3 +1158,50 @@ body {
     flex-direction: column;
     min-height: 0;
 }
+
+/* Extension items - orange tint */
+/* Normal servers (LSP servers) - green to match diagram */
+.server-item:not(.server-extension) {
+    background: rgba(58, 128, 112, 0.15) !important;
+    border-left: 3px solid #3a8070 !important;
+}
+
+.server-item:not(.server-extension):hover {
+    background: rgba(58, 128, 112, 0.25) !important;
+}
+
+.server-item:not(.server-extension).active {
+    background: rgba(58, 128, 112, 0.3) !important;
+}
+
+/* External servers keep their darker green background */
+.server-item-external:not(.server-extension) {
+    background: rgba(58, 128, 112, 0.2) !important;
+}
+
+.server-item-external:not(.server-extension):hover {
+    background: rgba(58, 128, 112, 0.3) !important;
+}
+
+.server-item-external:not(.server-extension).active {
+    background: rgba(58, 128, 112, 0.35) !important;
+}
+
+/* Extensions - gray border, background and text */
+.server-extension {
+    background: rgba(107, 107, 107, 0.1) !important;
+    border-left: 3px solid #6b6b6b !important;
+}
+
+.server-extension:hover {
+    background: rgba(107, 107, 107, 0.15) !important;
+}
+
+.server-extension.active {
+    background: rgba(107, 107, 107, 0.2) !important;
+}
+
+.server-extension .server-name {
+    color: #999999;
+}
+

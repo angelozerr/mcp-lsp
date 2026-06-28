@@ -1,0 +1,33 @@
+/* Diagram-specific styles */
+
+/* Style vis.js navigation buttons (override green default) */
+.vis-network .vis-navigation .vis-button {
+    background-color: #3c3c3c !important;
+    background-image: none !important;
+    border: 1px solid #555 !important;
+    box-shadow: none !important;
+    font-size: 16px !important;
+    color: #cccccc !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.vis-network .vis-navigation .vis-button:hover {
+    background-color: #4a4a4a !important;
+    box-shadow: 0 0 3px rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Add emoji icons if background-image doesn't show */
+.vis-network .vis-navigation .vis-button.vis-up::before { content: "↑"; }
+.vis-network .vis-navigation .vis-button.vis-down::before { content: "↓"; }
+.vis-network .vis-navigation .vis-button.vis-left::before { content: "←"; }
+.vis-network .vis-navigation .vis-button.vis-right::before { content: "→"; }
+.vis-network .vis-navigation .vis-button.vis-zoomIn::before { content: "+"; }
+.vis-network .vis-navigation .vis-button.vis-zoomOut::before { content: "−"; }
+.vis-network .vis-navigation .vis-button.vis-zoomExtends::before { content: "⊡"; }
+
+/* Remove green background from the navigation container */
+.vis-network .vis-navigation {
+    background: transparent !important;
+}

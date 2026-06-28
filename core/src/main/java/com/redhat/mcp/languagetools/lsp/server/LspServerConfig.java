@@ -69,6 +69,12 @@ public class LspServerConfig {
     private String description;
 
     /**
+     * True if this is a pure extension (server-extension.json), false if it's a server (server.json).
+     * Extensions contribute to other servers but don't run a separate process.
+     */
+    private boolean isExtension;
+
+    /**
      * Contributions (VS Code-like extension system)
      */
     private Contributes contributes;
@@ -263,6 +269,14 @@ public class LspServerConfig {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public boolean isExtension() {
+        return isExtension;
+    }
+
+    public void setExtension(boolean extension) {
+        isExtension = extension;
     }
 
     public Contributes getContributes() {

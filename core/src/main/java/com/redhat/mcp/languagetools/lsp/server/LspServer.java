@@ -156,7 +156,58 @@ public class LspServer {
 
             } catch (IOException e) {
                 LOG.errorf(e, "Failed to start %s", config.getId());
-                throw new RuntimeException("Failed to start " + config.getId(), e);
+                // Send error to traces
+                String errorMessage = String.format("[Error starting %s]\n%s: %s",
+                    config.getName(),
+                    e.getClass().getSimpleName(),
+                    e.getMessage());
+                try {
+                    LOG.infof("Attempting to add trace for error: %s", errorMessage);
+                    tracing.getCollector().addTrace(
+                        workspaceRoot.toString(),
+                        config.getId(),
+                        config.getName(),
+                        LspTraceMessage.MessageDirection.SERVER_TO_CLIENT,
+                        errorMessage
+                    );
+                    LOG.infof("Trace added successfully");
+                } catch (Exception traceEx) {
+                    LOG.errorf(traceEx, "Failed to add trace for error!");
+                }
+                setStatus(ServerStatus.STOPPED);
+                // Don't throw - let error be visible in traces
+            } catch (Exception e) {
+                LOG.errorf(e, "Unexpected error starting %s", config.getId());
+                // Build full stack trace
+                StringBuilder stackTrace = new StringBuilder();
+                stackTrace.append("[Error starting ").append(config.getName()).append("]\n");
+                Throwable current = e;
+                while (current != null) {
+                    stackTrace.append(current.getClass().getName()).append(": ").append(current.getMessage()).append("\n");
+                    for (StackTraceElement element : current.getStackTrace()) {
+                        stackTrace.append("  at ").append(element.toString()).append("\n");
+                    }
+                    current = current.getCause();
+                    if (current != null) {
+                        stackTrace.append("Caused by: ");
+                    }
+                }
+
+                try {
+                    LOG.infof("Attempting to add trace for error");
+                    tracing.getCollector().addTrace(
+                        workspaceRoot.toString(),
+                        config.getId(),
+                        config.getName(),
+                        LspTraceMessage.MessageDirection.SERVER_TO_CLIENT,
+                        stackTrace.toString()
+                    );
+                    LOG.infof("Trace added successfully");
+                } catch (Exception traceEx) {
+                    LOG.errorf(traceEx, "Failed to add trace for error!");
+                }
+                setStatus(ServerStatus.STOPPED);
+                // Don't throw - let error be visible in traces
             }
         }, executorService);
     }
@@ -165,18 +216,64 @@ public class LspServer {
      * Start a MCP-managed language server process only (do not connect to IDE instance).
      */
     public CompletableFuture<Void> startManagedOnly() {
+        LOG.infof("=== startManagedOnly() called for %s ===", config.getId());
         setStatus(ServerStatus.STARTING);
         return CompletableFuture.runAsync(() -> {
+            LOG.infof("=== Inside CompletableFuture.runAsync for %s ===", config.getId());
             try {
                 String workspacePath = Paths.get(workspaceRoot).toString();
+                LOG.infof("Workspace path: %s", workspacePath);
 
                 // Launch new process directly without checking for IDE instance
+                LOG.infof("About to call launchProcess() for %s", config.getId());
                 launchProcess();
+                LOG.infof("launchProcess() completed for %s", config.getId());
                 startFileWatcher(workspacePath);
 
             } catch (IOException e) {
                 LOG.errorf(e, "Failed to start %s", config.getId());
-                throw new RuntimeException("Failed to start " + config.getId(), e);
+                // Send error to traces
+                String errorMessage = String.format("[Error starting %s]\n%s: %s",
+                    config.getName(),
+                    e.getClass().getSimpleName(),
+                    e.getMessage());
+                tracing.getCollector().addTrace(
+                    workspaceRoot.toString(),
+                    config.getId(),
+                    config.getName(),
+                    LspTraceMessage.MessageDirection.SERVER_TO_CLIENT,
+                    errorMessage
+                );
+                setStatus(ServerStatus.STOPPED);
+                // Don't throw - let error be visible in traces
+            } catch (Exception e) {
+                LOG.errorf(e, "Unexpected error starting %s", config.getId());
+                // Send error to traces (extract root cause)
+                Throwable cause = e;
+                while (cause.getCause() != null && cause.getCause() != cause) {
+                    cause = cause.getCause();
+                }
+                String errorMessage = String.format("[Error starting %s]\n%s: %s",
+                    config.getName(),
+                    cause.getClass().getSimpleName(),
+                    cause.getMessage());
+
+                try {
+                    LOG.infof("Attempting to add trace for error: %s", errorMessage);
+                    tracing.getCollector().addTrace(
+                        workspaceRoot.toString(),
+                        config.getId(),
+                        config.getName(),
+                        LspTraceMessage.MessageDirection.SERVER_TO_CLIENT,
+                        errorMessage
+                    );
+                    LOG.infof("Trace added successfully");
+                } catch (Exception traceEx) {
+                    LOG.errorf(traceEx, "Failed to add trace for error!");
+                }
+
+                setStatus(ServerStatus.STOPPED);
+                // Don't throw - let error be visible in traces
             }
         }, executorService);
     }
@@ -222,8 +319,21 @@ public class LspServer {
     protected void launchProcess() throws IOException {
         LOG.infof("Launching new %s process for workspace: %s", config.getId(), workspaceRoot);
 
+        LOG.infof("Building command for %s...", config.getId());
         List<String> command = buildCommand();
-        LOG.debugf("%s command: %s", config.getId(), String.join(" ", command));
+        LOG.infof("Command built successfully for %s: %d args", config.getId(), command.size());
+        String commandStr = String.join(" ", command);
+        LOG.debugf("%s command: %s", config.getId(), commandStr);
+
+        // Send command to traces (visible in UI)
+        String startMessage = String.format("[Starting %s]\n%s", config.getName(), commandStr);
+        tracing.getCollector().addTrace(
+            workspaceRoot.toString(),
+            config.getId(),
+            config.getName(),
+            LspTraceMessage.MessageDirection.SERVER_TO_CLIENT,
+            startMessage
+        );
 
         ProcessBuilder pb = new ProcessBuilder(command);
 

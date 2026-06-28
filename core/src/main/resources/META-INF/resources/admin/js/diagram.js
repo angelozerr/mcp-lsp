@@ -39,20 +39,26 @@ function renderServerDiagram(servers, currentServerId) {
     const filteredServers = servers.filter(s => relevantServerIds.has(s.id));
 
     // Build nodes (one per server)
-    const nodes = filteredServers.map(server => ({
-        id: server.id,
-        label: server.name || server.id,
-        title: server.id === currentServerId
-            ? (server.description || server.name || server.id)
-            : `${server.description || server.name || server.id}\n\n💡 Double-click to open`, // tooltip
-        color: server.id === currentServerId ? '#005a9e' : '#3a8070',
-        font: {
-            color: '#ffffff',
-            size: 14
-        },
-        shape: 'box',
-        margin: 10
-    }));
+    const nodes = filteredServers.map(server => {
+        const icon = server.isExtension ? '🧩' : '🚀';
+        const label = `${icon} ${server.name || server.id}`;
+        return {
+            id: server.id,
+            label: label,
+            title: server.id === currentServerId
+                ? (server.description || server.name || server.id)
+                : `${server.description || server.name || server.id}\n\n💡 Double-click to open`, // tooltip
+            color: server.id === currentServerId
+                ? '#005a9e'  // Current server: blue
+                : (server.isExtension ? '#6b6b6b' : '#3a8070'),  // Extension: gray, Server: green
+            font: {
+                color: '#ffffff',
+                size: 14
+            },
+            shape: 'box',
+            margin: 10
+        };
+    });
 
     // Build edges (contributions between servers)
     // Group by (from, to) pair to combine multiple contribution types
@@ -267,20 +273,26 @@ function renderWorkspaceDiagram(servers, currentServerId) {
     const filteredServers = servers.filter(s => connectedServerIds.has(s.id));
 
     // Build nodes (one per server)
-    const nodes = filteredServers.map(server => ({
-        id: server.id,
-        label: server.name || server.id,
-        title: server.id === currentServerId
-            ? (server.description || server.name || server.id)
-            : `${server.description || server.name || server.id}\n\n💡 Double-click to open`, // tooltip
-        color: server.id === currentServerId ? '#005a9e' : '#3a8070',
-        font: {
-            color: '#ffffff',
-            size: 14
-        },
-        shape: 'box',
-        margin: 10
-    }));
+    const nodes = filteredServers.map(server => {
+        const icon = server.isExtension ? '🧩' : '🚀';
+        const label = `${icon} ${server.name || server.id}`;
+        return {
+            id: server.id,
+            label: label,
+            title: server.id === currentServerId
+                ? (server.description || server.name || server.id)
+                : `${server.description || server.name || server.id}\n\n💡 Double-click to open`, // tooltip
+            color: server.id === currentServerId
+                ? '#005a9e'  // Current server: blue
+                : (server.isExtension ? '#6b6b6b' : '#3a8070'),  // Extension: gray, Server: green
+            font: {
+                color: '#ffffff',
+                size: 14
+            },
+            shape: 'box',
+            margin: 10
+        };
+    });
 
     // Build edges (contributions between servers)
     // Group by (from, to) pair to combine multiple contribution types

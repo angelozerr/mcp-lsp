@@ -36,6 +36,15 @@
         }
 
         /**
+         * Check if a server is an extension (no documentSelector = pure extension).
+         * @param {Object} server - Server config
+         * @returns {boolean} True if extension
+         */
+        function isExtension(server) {
+            return !server.documentSelector || server.documentSelector.length === 0;
+        }
+
+        /**
          * Merge runtime state with static config.
          * @param {Object} runtime - ServerRuntimeDTO from workspace
          * @returns {Object} Merged server object with both config and runtime
@@ -54,6 +63,7 @@
                 workingDirectory: config.workingDirectory,
                 initializationOptions: config.initializationOptions,
                 contributions: config.contributions,
+                isExtension: config.isExtension,
 
                 // Runtime fields
                 status: runtime.status,
@@ -381,10 +391,16 @@
 
                 container.innerHTML = servers.map(server => {
                     const isActive = selectedAllServer === server.id ? 'active' : '';
+                    const extensionClass = server.isExtension ? 'server-extension' : '';
+                    const extensionBadge = server.isExtension ? ' <span style="color: #999999; font-size: 0.85em;">(Extension)</span>' : '';
+                    const serverIcon = server.isExtension ? '🧩' : '🚀';
                     const contributeInfo = formatContributeInfo(server, contributedByMap);
                     return `
-                        <div class="server-item ${isActive}" onclick="showServerDetails('${server.id}')">
-                            <div class="server-name">${server.name}</div>
+                        <div class="server-item ${isActive} ${extensionClass}" onclick="showServerDetails('${server.id}')">
+                            <div class="server-name">
+                                <span class="server-source-icon">${serverIcon}</span>
+                                ${server.name}${extensionBadge}
+                            </div>
                             <div class="server-id" ${contributeInfo.tooltip ? `title="${contributeInfo.tooltip}"` : ''}>${server.id}${contributeInfo.text}</div>
                         </div>
                     `;
@@ -414,10 +430,16 @@
             const container = document.getElementById('all-servers-list');
             container.innerHTML = servers.map(server => {
                 const isActive = selectedAllServer === server.id ? 'active' : '';
+                const extensionClass = server.isExtension ? 'server-extension' : '';
+                const extensionBadge = server.isExtension ? ' <span style="color: #999999; font-size: 0.85em;">(Extension)</span>' : '';
+                const serverIcon = server.isExtension ? '🧩' : '🚀';
                 const contributeInfo = formatContributeInfo(server, contributedByMap);
                 return `
-                    <div class="server-item ${isActive}" onclick="showServerDetails('${server.id}')">
-                        <div class="server-name">${server.name}</div>
+                    <div class="server-item ${isActive} ${extensionClass}" onclick="showServerDetails('${server.id}')">
+                        <div class="server-name">
+                            <span class="server-source-icon">${serverIcon}</span>
+                            ${server.name}${extensionBadge}
+                        </div>
                         <div class="server-id" ${contributeInfo.tooltip ? `title="${contributeInfo.tooltip}"` : ''}>${server.id}${contributeInfo.text}</div>
                     </div>
                 `;
@@ -450,9 +472,15 @@
                     currentServerTab = 'overview';
                 }
 
+                // Build icon for server title
+                const serverIcon = details.isExtension ? '🧩' : '🚀';
+
                 const html = `
                     <div class="console-header">
-                        <div class="console-title">${details.name || details.id}</div>
+                        <div class="console-title">
+                            <span class="server-source-icon">${serverIcon}</span>
+                            ${details.name || details.id}
+                        </div>
                         <div class="console-tabs">
                             <button class="tab-button ${currentServerTab === 'overview' ? 'active' : ''}" onclick="switchServerTab('overview')">Overview</button>
                             ${hasContributions ? `<button class="tab-button ${currentServerTab === 'contributions' ? 'active' : ''}" onclick="switchServerTab('contributions')">Contributions</button>` : ''}
@@ -795,37 +823,41 @@
                 const isExternal = server.externalInstance != null &&
                                    (server.status === 'CONNECTED_TO_IDE' || server.status === 'CONNECTING_TO_IDE');
                 const serverClass = isExternal ? 'server-item-external' : 'server-item-managed';
+                const extensionClass = server.isExtension ? 'server-extension' : '';
+                const extensionBadge = server.isExtension ? ' <span style="color: #999999; font-size: 0.85em;">(Extension)</span>' : '';
 
-                // Display actions based on status
+                // Display actions based on status (no actions for extensions)
                 let actions = '';
-                if (isExternal) {
-                    // For IDE-connected servers: offer to disconnect
-                    actions = `
-                        <button class="server-action-btn server-action-disconnect"
-                                onclick='event.stopPropagation(); disconnectFromIdeAction("${server.id}")'
-                                title="Disconnect from IDE">⏏</button>
-                    `;
-                } else {
-                    // For MCP-managed servers
-                    if (server.status === 'RUNNING' || server.status === 'STARTING') {
+                if (!server.isExtension) {
+                    if (isExternal) {
+                        // For IDE-connected servers: offer to disconnect
                         actions = `
-                            <button class="server-action-btn" onclick='event.stopPropagation(); restartServerAction("${server.id}")' title="Restart">↻</button>
-                            <button class="server-action-btn" onclick='event.stopPropagation(); stopServerAction("${server.id}")' title="Stop">■</button>
+                            <button class="server-action-btn server-action-disconnect"
+                                    onclick='event.stopPropagation(); disconnectFromIdeAction("${server.id}")'
+                                    title="Disconnect from IDE">⏏</button>
                         `;
-                    } else if (server.status === 'STOPPED') {
-                        // Offer to start MCP-managed or connect to IDE
-                        actions = `
-                            <button class="server-action-btn" onclick='event.stopPropagation(); startManagedServerAction("${server.id}")' title="Start MCP-managed server">▶</button>
-                            <button class="server-action-btn" onclick='event.stopPropagation(); connectToIdeAction("${server.id}")' title="Try to connect to IDE instance">🔗</button>
-                        `;
+                    } else {
+                        // For MCP-managed servers
+                        if (server.status === 'RUNNING' || server.status === 'STARTING') {
+                            actions = `
+                                <button class="server-action-btn" onclick='event.stopPropagation(); restartServerAction("${server.id}")' title="Restart">↻</button>
+                                <button class="server-action-btn" onclick='event.stopPropagation(); stopServerAction("${server.id}")' title="Stop">■</button>
+                            `;
+                        } else if (server.status === 'STOPPED') {
+                            // Offer to start MCP-managed or connect to IDE
+                            actions = `
+                                <button class="server-action-btn" onclick='event.stopPropagation(); startManagedServerAction("${server.id}")' title="Start MCP-managed server">▶</button>
+                                <button class="server-action-btn" onclick='event.stopPropagation(); connectToIdeAction("${server.id}")' title="Try to connect to IDE instance">🔗</button>
+                            `;
+                        }
                     }
                 }
 
                 // Build source indicator
-                const sourceIcon = isExternal ? '🔗' : '🚀';
+                const sourceIcon = isExternal ? '🔗' : (server.isExtension ? '🧩' : '🚀');
                 const sourceLabel = isExternal
                     ? `Connected to IDE (port ${server.externalInstance.port}, PID ${server.externalInstance.pid})`
-                    : 'Managed by MCP';
+                    : (server.isExtension ? 'Extension' : 'Managed by MCP');
 
                 // Build IDE info display (port/PID)
                 let ideInfo = '';
@@ -842,20 +874,22 @@
                 const tooltipText = server.command ? `Command: ${server.command}` : '';
 
                 return `
-                    <div class="server-item ${serverClass} ${selectedServer?.id === server.id ? 'active' : ''}"
+                    <div class="server-item ${serverClass} ${extensionClass} ${selectedServer?.id === server.id ? 'active' : ''}"
                          onclick='selectServer(${JSON.stringify(server)})'
                          ${tooltipText ? `title="${tooltipText.replace(/"/g, '&quot;')}"` : ''}>
                         <div class="server-name">
                             <span class="server-source-icon" title="${sourceLabel}">${sourceIcon}</span>
-                            ${server.name}
+                            ${server.name}${extensionBadge}
                         </div>
                         <div class="server-id" ${(() => { const info = formatContributeInfo(server, contributedByMap); return info.tooltip ? `title="${info.tooltip}"` : ''; })()}>${server.id}${(() => formatContributeInfo(server, contributedByMap).text)()}</div>
+                        ${!server.isExtension ? `
                         <div>
                             <span class="status-badge ${server.status === 'RUNNING' && !server.isReady ? 'status-running-not-ready' : 'status-' + server.status.toLowerCase()}">${formatStatusLabel(server.status, server.externalInstance)}</span>
                             ${server.statusMessage ? `<span class="server-status-message" style="color: #888; font-size: 0.85rem; margin-left: 0.5rem;">${escapeHtml(server.statusMessage)}</span>` : ''}
                             ${ideInfo}
                             ${server.pid ? `<span class="server-ide-info"><span title="Process ID">${server.pid}</span></span>` : ''}
                         </div>
+                        ` : ''}
                         <div class="server-actions">
                             ${actions}
                         </div>
@@ -965,21 +999,32 @@
             const hasContributions = (server.contributions && Object.keys(server.contributions).length > 0) ||
                                     buildContributedByMap(allServers)[server.id]?.length > 0;
 
-            // If current tab is contributions but there are none, switch to traces
-            if (!hasContributions && currentConsoleTab === 'contributions') {
-                currentConsoleTab = 'traces';
+            // Extensions don't have traces - default to overview
+            if (server.isExtension && currentConsoleTab === 'traces') {
+                currentConsoleTab = 'overview';
             }
+
+            // If current tab is contributions but there are none, switch to appropriate default
+            if (!hasContributions && currentConsoleTab === 'contributions') {
+                currentConsoleTab = server.isExtension ? 'overview' : 'traces';
+            }
+
+            // Build icon for console title
+            const isExternal = server.externalInstance != null &&
+                              (server.status === 'CONNECTED_TO_IDE' || server.status === 'CONNECTING_TO_IDE');
+            const titleIcon = isExternal ? '🔗' : (server.isExtension ? '🧩' : '🚀');
 
             // Setup console UI with tabs
             document.getElementById('console-area').innerHTML = `
                 <div class="console-wrapper">
                     <div class="console-header">
                         <div class="console-title">
+                            <span class="server-source-icon">${titleIcon}</span>
                             ${server.name}
                             <span class="status-indicator" id="sse-status"></span>
                         </div>
                         <div class="console-tabs">
-                            <button class="tab-button ${currentConsoleTab === 'traces' ? 'active' : ''}" onclick="switchConsoleTab('traces')">Traces</button>
+                            ${!server.isExtension ? `<button class="tab-button ${currentConsoleTab === 'traces' ? 'active' : ''}" onclick="switchConsoleTab('traces')">Traces</button>` : ''}
                             <button class="tab-button ${currentConsoleTab === 'overview' ? 'active' : ''}" onclick="switchConsoleTab('overview')">Overview</button>
                             ${hasContributions ? `<button class="tab-button ${currentConsoleTab === 'contributions' ? 'active' : ''}" onclick="switchConsoleTab('contributions')">Contributions</button>` : ''}
                             <button class="tab-button ${currentConsoleTab === 'install' ? 'active' : ''}" onclick="switchConsoleTab('install')">Install</button>

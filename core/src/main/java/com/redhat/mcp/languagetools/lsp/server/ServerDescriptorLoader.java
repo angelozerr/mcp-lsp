@@ -33,6 +33,7 @@ public class ServerDescriptorLoader {
     private static final Logger LOG = Logger.getLogger(ServerDescriptorLoader.class);
     private static final String LSP_RESOURCE_DIR = "lsp";
     private static final String SERVER_CONFIG_FILE = "server.json";
+    private static final String SERVER_EXTENSION_CONFIG_FILE = "server-extension.json";
     private static final String INSTALLER_CONFIG_FILE = "installer.json";
 
     @Inject
@@ -42,21 +43,34 @@ public class ServerDescriptorLoader {
 
     /**
      * Load a bundled server configuration from resources.
-     * Expects structure: /lsp/{serverId}/server.json and optionally /lsp/{serverId}/installer.json
+     * Expects structure: /lsp/{serverId}/server.json (or server-extension.json) and optionally /lsp/{serverId}/installer.json
      */
     public LspServerConfig loadBundled(String serverId) throws IOException {
+        // Try server.json first, then server-extension.json
         String serverPath = buildResourcePath(serverId, SERVER_CONFIG_FILE);
+        String extensionPath = buildResourcePath(serverId, SERVER_EXTENSION_CONFIG_FILE);
         String installerPath = buildResourcePath(serverId, INSTALLER_CONFIG_FILE);
 
-        LOG.infof("Loading bundled server config: %s", serverPath);
-
-        // Load server.json
+        // Load server.json or server-extension.json
         LspServerConfig config;
-        try (InputStream is = getClass().getResourceAsStream(serverPath)) {
-            if (is == null) {
-                throw new IOException("Bundled server config not found: " + serverPath);
+        InputStream serverStream = getClass().getResourceAsStream(serverPath);
+        boolean isExtension = false;
+
+        if (serverStream == null) {
+            // Try server-extension.json
+            serverStream = getClass().getResourceAsStream(extensionPath);
+            if (serverStream == null) {
+                throw new IOException("Bundled server config not found: " + serverPath + " or " + extensionPath);
             }
+            isExtension = true;
+            LOG.infof("Loading bundled extension config: %s", extensionPath);
+        } else {
+            LOG.infof("Loading bundled server config: %s", serverPath);
+        }
+
+        try (InputStream is = serverStream) {
             config = parseServerConfig(is, serverId);
+            config.setExtension(isExtension);
         }
 
         // Load installer.json if present

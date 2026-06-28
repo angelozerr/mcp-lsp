@@ -19,6 +19,7 @@ public record ServerConfigDTO(
     Map<String, String> env,
     String workingDirectory,
     Map<String, Object> initializationOptions,
-    Map<String, Map<String, List<?>>> contributions
+    Map<String, Map<String, List<?>>> contributions,
+    boolean isExtension
 ) {
 }
