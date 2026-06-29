@@ -15,7 +15,9 @@ import java.util.Map;
  *   "contributes": {
  *     "jdtls": {
  *       "bundles": ["plugins/*.jar"],
- *       "bindRequest": ["microprofile/java/projectInfo", ...]
+ *       "bindRequest": ["microprofile/java/projectInfo", ...],
+ *       "bindNotification": ["textDocument/didOpen", "textDocument/didChange", ...],
+ *       "bindMode": "direct"
  *     },
  *     "microprofile": {
  *       "bundles": ["lib/*.jar"]
@@ -24,6 +26,14 @@ import java.util.Map;
  * }
  *
  * Each server interprets its own contribution format by looking for contributes.{serverId}.
+ *
+ * bindRequest: Route requests from this server to the target server
+ *   - Default mode: "executeCommand" (via workspace/executeCommand)
+ *   - Can override with "bindMode": "direct" for direct method calls
+ *
+ * bindNotification: Route notifications from this server to the target server
+ *   - Default mode: "direct" (direct method call)
+ *   - Can override with "bindMode": "executeCommand" if needed
  */
 public class Contributes {
 

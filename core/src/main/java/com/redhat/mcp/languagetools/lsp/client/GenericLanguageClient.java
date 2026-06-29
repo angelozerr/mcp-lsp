@@ -18,12 +18,48 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Generic LSP client implementation with support for capability registration and bindRequest routing.
- * Implements Endpoint to handle bindRequest routing declared in server.json.
+ * Generic LSP client implementation with support for capability registration, bindRequest and bindNotification routing.
+ * Implements Endpoint to handle bindRequest and bindNotification routing declared in server.json.
+ *
+ * bindRequest: defaults to "executeCommand" mode (workspace/executeCommand)
+ * bindNotification: defaults to "direct" mode (direct method call)
  */
 public class GenericLanguageClient implements LanguageClient, Endpoint {
 
     private static final Logger LOG = Logger.getLogger(GenericLanguageClient.class);
+
+    // JSON field names
+    private static final String BIND_REQUEST = "bindRequest";
+    private static final String BIND_NOTIFICATION = "bindNotification";
+    private static final String MODE = "mode";
+    private static final String METHODS = "methods";
+    private static final String METHOD = "method";
+    private static final String TARGET_METHOD = "targetMethod";
+
+    // Bind mode enum
+    public enum BindMode {
+        EXECUTE_COMMAND("executeCommand"),
+        DIRECT("direct");
+
+        private final String value;
+
+        BindMode(String value) {
+            this.value = value;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public static BindMode fromString(String mode) {
+            for (BindMode m : values()) {
+                if (m.value.equals(mode)) {
+                    return m;
+                }
+            }
+            return EXECUTE_COMMAND; // Default fallback
+        }
+    }
 
     protected final LspServer lspServer;
 
@@ -75,17 +111,31 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
 
     @Override
     public CompletableFuture<?> request(String method, Object parameter) {
-        LOG.debugf("[%s] GenericLanguageClient.request() called for: %s", lspServer.getConfig().getId(), method);
+        // Current server ID (the one receiving the custom request from its LSP server)
+        // Example: "microprofile" receives "microprofile/java/projectInfo"
+        //      or: "qute" receives "qute/template/project"
+        String serverId = lspServer.getConfig().getId();
+        LOG.debugf("[%s] GenericLanguageClient.request() called for: %s", serverId, method);
 
         // Check if this is a bindRequest declared in server.json
-        BindRequestInfo bindInfo = findBindRequestInfo(method);
+        BindInfo bindInfo = findBindInfo(method, BIND_REQUEST, BindMode.EXECUTE_COMMAND);
 
         if (bindInfo != null) {
+            // Target server ID (the one that will handle the custom request)
+            // Example: "jdtls" when microprofile declares bindRequest: ["microprofile/java/projectInfo"]
+            //      or: "jdtls" when qute declares bindRequest: ["qute/template/project"]
+            String targetServerId = bindInfo.targetServerId;
+            // Target method name (may differ from source method)
+            // Example: "qute/template/project" → "jdtls/qute/getProject"
+            String targetMethod = bindInfo.targetMethod();
+            // Routing mode (EXECUTE_COMMAND or DIRECT)
+            // Default: EXECUTE_COMMAND (via workspace/executeCommand)
+            BindMode bindMode = bindInfo.mode();
             RequestRouter router = lspServer.getRequestRouter();
             if (router != null) {
-                LOG.infof("[%s] Routing bindRequest %s to server %s (mode: %s)",
-                    lspServer.getConfig().getId(), method, bindInfo.targetServerId, bindInfo.mode);
-                return router.routeRequest(bindInfo.targetServerId, method, parameter, bindInfo.mode);
+                LOG.infof("[%s] Routing bindRequest %s to server %s as %s (mode: %s)",
+                    serverId, method, targetServerId, targetMethod, bindMode.getValue());
+                return router.routeRequest(targetServerId, targetMethod, parameter, bindMode.getValue());
             }
         }
 
@@ -98,23 +148,57 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
 
     @Override
     public void notify(String method, Object parameter) {
-        // Notifications are handled via @JsonNotification
-        LOG.debugf("[%s] GenericLanguageClient.notify() called: %s", lspServer.getConfig().getId(), method);
-    }
+        // Current server ID (the one receiving the custom notification from its LSP server)
+        // Example: "microprofile" receives "microprofile/propertiesChanged"
+        //      or: "qute" receives "qute/dataModelChanged"
+        String serverId = lspServer.getConfig().getId();
+        LOG.debugf("[%s] GenericLanguageClient.notify() called: %s", serverId, method);
 
-    // ===== bindRequest routing logic =====
+        // Check if this is a bindNotification declared in server.json
+        BindInfo bindInfo = findBindInfo(method, BIND_NOTIFICATION, BindMode.DIRECT);
 
-    private static class BindRequestInfo {
-        final String targetServerId;
-        final String mode;
+        if (bindInfo != null) {
+            // Target server ID (the one that will receive the custom notification)
+            // Example: "jdtls" when microprofile declares bindNotification: ["microprofile/propertiesChanged"]
+            //      or: "jdtls" when qute declares bindNotification: ["qute/dataModelChanged"]
+            String targetServerId = bindInfo.targetServerId;
+            // Target method name (may differ from source method)
+            // Example: "qute/dataModelChanged" → "jdtls/qute/modelChanged"
+            String targetMethod = bindInfo.targetMethod();
+            // Routing mode (DIRECT by default, or EXECUTE_COMMAND)
+            // Default: DIRECT (direct method call, not via workspace/executeCommand)
+            BindMode bindMode = bindInfo.mode();
+            RequestRouter router = lspServer.getRequestRouter();
+            if (router != null) {
+                LOG.infof("[%s] Routing bindNotification %s to server %s as %s (mode: %s)",
+                    serverId, method, targetServerId, targetMethod, bindMode.getValue());
 
-        BindRequestInfo(String targetServerId, String mode) {
-            this.targetServerId = targetServerId;
-            this.mode = mode;
+                // Send notification asynchronously (fire and forget)
+                router.routeRequest(targetServerId, targetMethod, parameter, bindMode.getValue())
+                    .exceptionally(ex -> {
+                        LOG.errorf(ex, "[%s] Failed to route bindNotification %s",
+                            serverId, method);
+                        return null;
+                    });
+            }
         }
     }
 
-    private BindRequestInfo findBindRequestInfo(String requestMethod) {
+    // ===== bindRequest and bindNotification routing logic =====
+
+    private record BindInfo(String targetServerId, String targetMethod, BindMode mode) {
+    }
+
+    /**
+     * Find bind information for a method in server.json contributes section.
+     * Works for both bindRequest and bindNotification.
+     *
+     * @param method The method name to find (e.g., "qute/template/project")
+     * @param bindKey The bind type key ("bindRequest" or "bindNotification")
+     * @param defaultMode The default mode to use if not specified
+     * @return BindInfo if found, null otherwise
+     */
+    private BindInfo findBindInfo(String method, String bindKey, BindMode defaultMode) {
         LspServerConfig config = lspServer.getConfig();
 
         if (config.getContributes() == null || config.getContributes().getContributions() == null) {
@@ -130,23 +214,74 @@ public class GenericLanguageClient implements LanguageClient, Endpoint {
             }
 
             JsonObject contribObj = contrib.getAsJsonObject();
-            if (!contribObj.has("bindRequest") || !contribObj.get("bindRequest").isJsonArray()) {
+            if (!contribObj.has(bindKey)) {
                 continue;
             }
 
-            JsonArray bindRequests = contribObj.get("bindRequest").getAsJsonArray();
+            JsonElement bindElement = contribObj.get(bindKey);
 
-            for (JsonElement req : bindRequests) {
-                if (req.isJsonPrimitive() && req.getAsString().equals(requestMethod)) {
-                    String mode = "executeCommand";
-                    if (contribObj.has("bindMode") && contribObj.get("bindMode").isJsonPrimitive()) {
-                        mode = contribObj.get("bindMode").getAsString();
+            // Format 1: Simple array ["method1", "method2", ...]
+            if (bindElement.isJsonArray()) {
+                JsonArray bindArray = bindElement.getAsJsonArray();
+                for (JsonElement element : bindArray) {
+                    BindInfo info = parseBindEntry(element, method, targetServerId, defaultMode);
+                    if (info != null) {
+                        return info;
                     }
-                    return new BindRequestInfo(targetServerId, mode);
+                }
+            }
+            // Format 2: Object with mode { "mode": "direct", "methods": [...] }
+            else if (bindElement.isJsonObject()) {
+                JsonObject bindObj = bindElement.getAsJsonObject();
+                BindMode mode = defaultMode;
+                if (bindObj.has(MODE) && bindObj.get(MODE).isJsonPrimitive()) {
+                    mode = BindMode.fromString(bindObj.get(MODE).getAsString());
+                }
+                if (bindObj.has(METHODS) && bindObj.get(METHODS).isJsonArray()) {
+                    JsonArray methods = bindObj.get(METHODS).getAsJsonArray();
+                    for (JsonElement element : methods) {
+                        BindInfo info = parseBindEntry(element, method, targetServerId, mode);
+                        if (info != null) {
+                            return info;
+                        }
+                    }
                 }
             }
         }
 
         return null;
     }
+
+    /**
+     * Parse a single bind entry (works for both bindRequest and bindNotification).
+     * Supports two formats:
+     * - Simple string: "qute/template/project"
+     * - Object: { "method": "qute/template/project", "targetMethod": "jdtls/qute/getProject", "mode": "direct" }
+     */
+    private BindInfo parseBindEntry(JsonElement entry, String sourceMethod, String targetServerId, BindMode defaultMode) {
+        // Simple string: "qute/template/project"
+        if (entry.isJsonPrimitive() && entry.getAsString().equals(sourceMethod)) {
+            return new BindInfo(targetServerId, sourceMethod, defaultMode);
+        }
+        // Object: { "method": "qute/template/project", "targetMethod": "jdtls/qute/getProject", "mode": "direct" }
+        else if (entry.isJsonObject()) {
+            JsonObject obj = entry.getAsJsonObject();
+            if (obj.has(METHOD) && obj.get(METHOD).isJsonPrimitive()) {
+                String method = obj.get(METHOD).getAsString();
+                if (method.equals(sourceMethod)) {
+                    String targetMethod = sourceMethod; // Default: same name
+                    if (obj.has(TARGET_METHOD) && obj.get(TARGET_METHOD).isJsonPrimitive()) {
+                        targetMethod = obj.get(TARGET_METHOD).getAsString();
+                    }
+                    BindMode mode = defaultMode; // Use default from parent
+                    if (obj.has(MODE) && obj.get(MODE).isJsonPrimitive()) {
+                        mode = BindMode.fromString(obj.get(MODE).getAsString());
+                    }
+                    return new BindInfo(targetServerId, targetMethod, mode);
+                }
+            }
+        }
+        return null;
+    }
+
 }
