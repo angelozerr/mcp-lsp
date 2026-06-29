@@ -408,6 +408,10 @@ public class Workspace {
         return rootUri;
     }
 
+    public Path getWorkspaceDataDir() {
+        return workspaceDataDir;
+    }
+
     public boolean isInitialized() {
         return initialized;
     }

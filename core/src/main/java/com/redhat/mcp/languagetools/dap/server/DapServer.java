@@ -1,10 +1,11 @@
 package com.redhat.mcp.languagetools.dap.server;
 
 import com.redhat.mcp.languagetools.PathManager;
+import com.redhat.mcp.languagetools.dap.client.DapClient;
+import com.redhat.mcp.languagetools.dap.client.DapEventListener;
 import org.eclipse.lsp4j.debug.Capabilities;
 import org.eclipse.lsp4j.debug.InitializeRequestArguments;
 import org.eclipse.lsp4j.debug.launch.DSPLauncher;
-import org.eclipse.lsp4j.debug.services.IDebugProtocolClient;
 import org.eclipse.lsp4j.debug.services.IDebugProtocolServer;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
 import org.jboss.logging.Logger;
@@ -37,6 +38,7 @@ public class DapServer {
 
     protected Process serverProcess;
     protected IDebugProtocolServer debugServer;
+    protected DapClient dapClient;
     private final ExecutorService executorService;
     private volatile ServerStatus status = ServerStatus.STOPPED;
     private volatile String statusMessage = null;
@@ -86,9 +88,9 @@ public class DapServer {
                 InputStream in = serverProcess.getInputStream();
                 OutputStream out = serverProcess.getOutputStream();
 
-                IDebugProtocolClient client = new DapClient(this);
+                dapClient = new DapClient();
                 Launcher<IDebugProtocolServer> launcher = DSPLauncher.createClientLauncher(
-                    client, in, out, executorService, wrapper -> wrapper);
+                    dapClient, in, out, executorService, wrapper -> wrapper);
 
                 debugServer = launcher.getRemoteProxy();
                 launcher.startListening();
@@ -234,16 +236,11 @@ public class DapServer {
     }
 
     /**
-     * Simple DAP client implementation.
+     * Set the event listener for DAP events (typically a DapSession).
      */
-    private static class DapClient implements IDebugProtocolClient {
-        private final DapServer server;
-
-        public DapClient(DapServer server) {
-            this.server = server;
+    public void setEventListener(DapEventListener listener) {
+        if (dapClient != null) {
+            dapClient.setEventListener(listener);
         }
-
-        // Implement required methods (most are no-op for now)
-        // In a full implementation, these would handle events from the debug adapter
     }
 }

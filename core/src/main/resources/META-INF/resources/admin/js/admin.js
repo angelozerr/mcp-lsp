@@ -415,6 +415,7 @@
             } else if (tab === 'mcp-traces') {
                 document.getElementById('workspaces-list').style.display = 'none';
                 document.getElementById('lsp-servers-list').style.display = 'none';
+                document.getElementById('dap-servers-list').style.display = 'none';
                 document.getElementById('mcp-traces-list').style.display = 'block';
                 serversColumn.style.display = 'none';
                 consoleColumn.style.display = 'flex';
