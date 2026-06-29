@@ -132,7 +132,7 @@ public class MyLivenessCheck implements HealthCheck {
 
 **You type**:
 ```
-Could you validate MyLivenessCheckwith MCP?
+Could you validate MyLivenessCheck with MCP?
 ```
 
 **Claude/Bob responds**:
@@ -218,6 +218,10 @@ Open `http://localhost:7654/admin` in your browser:
 ### MCP Traces
 
 ![MCP traces](./images/admin-mcp-traces.png)
+
+### Server Contributions
+
+![Contributions](./images/admin-lsp-contributions.png)
 
 ---
 
