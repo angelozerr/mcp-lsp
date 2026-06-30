@@ -47,6 +47,7 @@ public class JdtLsServer extends LspServer {
         Map<String, Object> options = new HashMap<>();
 
         // Start with config-defined initialization options
+        var config = super.getConfig();
         if (config.getInitializationOptions() != null && !config.getInitializationOptions().isEmpty()) {
             options.putAll(config.getInitializationOptions());
         }
@@ -417,18 +418,6 @@ public class JdtLsServer extends LspServer {
     }
 
     /**
-     * Override to notify when JDT.LS becomes ready.
-     * Called by JdtLsLanguageClient when language/status notification with "ServiceReady" is received.
-     */
-    @Override
-    protected void setReady(boolean ready) {
-        if (ready && !isReady()) {
-            LOG.infof("JDT.LS is now ready for workspace: %s", workspaceRoot);
-        }
-        super.setReady(ready);
-    }
-
-    /**
      * Get the JDT.LS-specific client.
      */
     public JdtLsLanguageClient getJdtClient() {
@@ -524,7 +513,7 @@ public class JdtLsServer extends LspServer {
             if (c == '"') {
                 inQuotes = !inQuotes;
             } else if (c == ' ' && !inQuotes) {
-                if (current.length() > 0) {
+                if (!current.isEmpty()) {
                     result.add(current.toString());
                     current.setLength(0);
                 }
@@ -533,7 +522,7 @@ public class JdtLsServer extends LspServer {
             }
         }
 
-        if (current.length() > 0) {
+        if (!current.isEmpty()) {
             result.add(current.toString());
         }
 

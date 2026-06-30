@@ -1,5 +1,7 @@
 package com.redhat.mcp.languagetools.lsp.server;
 
+import com.redhat.mcp.languagetools.server.ServerStatus;
+
 import java.net.URI;
 
 /**

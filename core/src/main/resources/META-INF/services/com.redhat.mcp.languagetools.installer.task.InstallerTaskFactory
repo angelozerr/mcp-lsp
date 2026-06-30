@@ -1,0 +1,4 @@
+com.redhat.mcp.languagetools.installer.task.FileExistsTask$Factory
+com.redhat.mcp.languagetools.installer.task.ConfigureServerTask$Factory
+com.redhat.mcp.languagetools.installer.task.DownloadTask$Factory
+com.redhat.mcp.languagetools.installer.task.CopyTask$Factory

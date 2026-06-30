@@ -11,11 +11,10 @@
 package com.redhat.mcp.languagetools.lsp.server;
 
 import com.redhat.mcp.languagetools.language.LanguageDocument;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
+import com.redhat.mcp.languagetools.ApplicationManager;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-import java.net.URI;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
@@ -29,7 +28,7 @@ import java.util.stream.Collectors;
 public class LspServerResolver {
 
     @Inject
-    WorkspaceManager workspaceManager;
+    ApplicationManager applicationManager;
 
     /**
      * Get all LSP servers that can handle the given file and match the filter.
@@ -44,7 +43,7 @@ public class LspServerResolver {
             String cwd,
             Predicate<LspServer> filter) {
 
-        return workspaceManager.getWorkspaceForFile(document.getUri())
+        return applicationManager.getWorkspaceForFile(document.getUri())
                 .thenApply(workspace -> {
                     // Get all LSP servers from workspace
                     var allServers = workspace.getAllLspServers();
@@ -68,7 +67,7 @@ public class LspServerResolver {
             String cwd,
             Predicate<LspServer> filter) {
 
-        return workspaceManager.getWorkspaceForPath(cwd)
+        return applicationManager.getWorkspaceForPath(cwd)
                 .thenApply(workspace -> {
                     // Get all LSP servers from workspace
                     var allServers = workspace.getAllLspServers();

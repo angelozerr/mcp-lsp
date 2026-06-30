@@ -25,7 +25,7 @@ import org.jboss.logging.Logger;
 import com.redhat.mcp.languagetools.language.LanguageRegistry;
 import com.redhat.mcp.languagetools.lsp.server.LspServer;
 import com.redhat.mcp.languagetools.workspace.Workspace;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
+import com.redhat.mcp.languagetools.ApplicationManager;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -50,7 +50,7 @@ public class RequireDidOpenInterceptor {
     private static final Logger LOG = Logger.getLogger(RequireDidOpenInterceptor.class);
 
     @Inject
-    WorkspaceManager workspaceManager;
+    ApplicationManager applicationManager;
 
     @Inject
     LanguageRegistry languageRegistry;
@@ -117,7 +117,7 @@ public class RequireDidOpenInterceptor {
         LOG.infof("Processing @RequireDidOpen for file: %s", fileUri);
 
         URI uri = URI.create(fileUri);
-        Workspace workspace = workspaceManager.getWorkspaceForFile(uri).join();
+        Workspace workspace = applicationManager.getWorkspaceForFile(uri).join();
 
         if (workspace == null) {
             LOG.warnf("No workspace found for %s", fileUri);

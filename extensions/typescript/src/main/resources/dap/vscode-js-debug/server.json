@@ -2,6 +2,7 @@
   "id": "vscode-js-debug",
   "name": "JavaScript Debugger",
   "description": "Debug adapter for JavaScript and TypeScript",
+  "installer": "installer.json",
   "launch": {
     "windows": "node ${serverHome}/src/dapDebugServer.js",
     "default": "node ${serverHome}/src/dapDebugServer.js"

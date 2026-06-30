@@ -4,6 +4,9 @@ import com.redhat.mcp.languagetools.PathManager;
 import com.redhat.mcp.languagetools.language.LanguageDocument;
 import com.redhat.mcp.languagetools.lsp.*;
 import com.redhat.mcp.languagetools.lsp.client.GenericLanguageClient;
+import com.redhat.mcp.languagetools.server.ServerBase;
+import com.redhat.mcp.languagetools.server.ServerStatus;
+import com.redhat.mcp.languagetools.workspace.WorkspaceConfiguration;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
 import org.eclipse.lsp4j.launch.LSPLauncher;
@@ -13,8 +16,6 @@ import org.jboss.logging.Logger;
 
 import com.redhat.mcp.languagetools.lsp.client.LspCapability;
 import com.redhat.mcp.languagetools.lsp.client.LspClientFeatures;
-import com.redhat.mcp.languagetools.lsp.client.LspNotificationConstants;
-import com.redhat.mcp.languagetools.lsp.trace.LspTraceCollector;
 import com.redhat.mcp.languagetools.lsp.trace.LspTraceMessage;
 import com.redhat.mcp.languagetools.lsp.trace.TracingMessageConsumer;
 
@@ -33,18 +34,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Generic Language Server instance.
  * Works with any LSP-compliant language server based on configuration.
  */
-public class LspServer {
+public class LspServer extends ServerBase<LspServerConfig> {
 
     private static final Logger LOG = Logger.getLogger(LspServer.class);
 
-    protected final LspServerConfig config;
     protected final LspServerContext context;
     protected final URI workspaceRoot;
     protected final Path workspaceDataDir;
@@ -53,36 +51,29 @@ public class LspServer {
     protected final List<LspServerConfig> allServerConfigs;
     protected final PathManager pathManager;
 
-    protected Process serverProcess;
     protected Socket socket;
     protected LanguageServer languageServer;
-    private final ExecutorService executorService;
     private final Map<String, List<Diagnostic>> diagnosticsCache = new ConcurrentHashMap<>();
     private final java.util.Set<String> openedFiles = ConcurrentHashMap.newKeySet();
-    private volatile ServerStatus status = ServerStatus.STOPPED;
-    private volatile String statusMessage = null;
     private boolean isSocketConnection = false;
     private InstanceFileWatcher fileWatcher;
     private LspInstanceRegistry.InstanceInfo currentInstance;
-    protected volatile boolean isReady = false;
-    protected com.redhat.mcp.languagetools.workspace.WorkspaceConfiguration workspaceConfiguration;
+    protected WorkspaceConfiguration workspaceConfiguration;
     protected LspContributionManager extensionManager;
     protected RequestRouter requestRouter;
-    private java.util.function.Consumer<ServerStatus> statusChangeCallback;
-    private LspClientFeatures clientFeatures;
+    private final LspClientFeatures clientFeatures;
 
     public RequestRouter getRequestRouter() {
         return requestRouter;
     }
 
     public LspServer(LspServerConfig config, LspServerContext context) {
-        this.config = config;
+        super(config);
         this.context = context;
         this.workspaceRoot = context.getWorkspaceRoot();
         this.workspaceDataDir = context.getWorkspaceDataDir();
         this.serverHome = context.getLspServerHome();
         this.tracing = new TracingMessageConsumer(context.getTraceCollector(), workspaceRoot.toString(), config.getId(), config.getName());
-        this.executorService = Executors.newCachedThreadPool();
         this.allServerConfigs = context.getAllServerConfigs() != null ? context.getAllServerConfigs() : List.of();
         this.pathManager = context.getPathManager();
 
@@ -95,43 +86,12 @@ public class LspServer {
     }
 
     /**
-     * Set a callback to be notified when server status changes.
-     */
-    public void setStatusChangeCallback(java.util.function.Consumer<ServerStatus> callback) {
-        this.statusChangeCallback = callback;
-    }
-
-    /**
-     * Update server status and notify callback if registered.
-     */
-    private void setStatus(ServerStatus newStatus) {
-        ServerStatus oldStatus = this.status;
-        this.status = newStatus;
-
-        // Clear status message when stopping/stopped
-        if (newStatus == ServerStatus.STOPPING || newStatus == ServerStatus.STOPPED) {
-            this.statusMessage = null;
-        }
-
-        LOG.infof("LspServer.setStatus: %s -> %s (callback registered: %s)",
-                oldStatus, newStatus, statusChangeCallback != null);
-
-        if (statusChangeCallback != null && oldStatus != newStatus) {
-            LOG.infof("Calling status change callback for %s: %s -> %s", config.getId(), oldStatus, newStatus);
-            try {
-                statusChangeCallback.accept(newStatus);
-            } catch (Exception e) {
-                LOG.warnf(e, "Error in status change callback for %s", config.getId());
-            }
-        }
-    }
-
-    /**
      * Start the language server process and establish LSP communication.
      * First tries to connect to an existing instance via socket, falls back to launching a new process.
      */
     public CompletableFuture<Void> start() {
         setStatus(ServerStatus.STARTING);
+        var config = super.getConfig();
         return CompletableFuture.runAsync(() -> {
             try {
                 // Try to find existing instance first
@@ -222,6 +182,7 @@ public class LspServer {
      * Start a MCP-managed language server process only (do not connect to IDE instance).
      */
     public CompletableFuture<Void> startManagedOnly() {
+        var config = super.getConfig();
         LOG.infof("=== startManagedOnly() called for %s ===", config.getId());
         setStatus(ServerStatus.STARTING);
         return CompletableFuture.runAsync(() -> {
@@ -288,6 +249,7 @@ public class LspServer {
      * Connect to an existing language server via socket.
      */
     private void connectToSocket(int port) throws IOException {
+        var config = super.getConfig();
         LOG.infof("Connecting to %s on localhost:%d", config.getId(), port);
 
         socket = new Socket("localhost", port);
@@ -323,6 +285,7 @@ public class LspServer {
      * Launch a new language server process.
      */
     protected void launchProcess() throws IOException {
+        var config = super.getConfig();
         LOG.infof("Launching new %s process for workspace: %s", config.getId(), workspaceRoot);
 
         LOG.infof("Building command for %s...", config.getId());
@@ -371,15 +334,15 @@ public class LspServer {
                     boolean isStackTraceLine = trimmed.startsWith("at ") && trimmed.contains("(") && trimmed.contains(")");
                     boolean isExceptionLine = trimmed.contains("Exception:") || trimmed.contains("Error:");
 
-                    if (isStackTraceLine || (isExceptionLine && stackTraceBuffer.length() == 0)) {
+                    if (isStackTraceLine || (isExceptionLine && stackTraceBuffer.isEmpty())) {
                         // Start or continue stack trace buffering
-                        if (stackTraceBuffer.length() == 0) {
+                        if (stackTraceBuffer.isEmpty()) {
                             stackTraceTimestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
                         }
                         stackTraceBuffer.append(line).append("\n");
                     } else {
                         // Flush buffered stack trace if any
-                        if (stackTraceBuffer.length() > 0) {
+                        if (!stackTraceBuffer.isEmpty()) {
                             String errorTrace = String.format("[Error - %s] %s stderr: %s",
                                 stackTraceTimestamp,
                                 config.getName(),
@@ -411,7 +374,7 @@ public class LspServer {
                 }
 
                 // Flush remaining stack trace at end of stream
-                if (stackTraceBuffer.length() > 0) {
+                if (!stackTraceBuffer.isEmpty()) {
                     String errorTrace = String.format("[Error - %s] %s stderr: %s",
                         stackTraceTimestamp,
                         config.getName(),
@@ -464,6 +427,7 @@ public class LspServer {
      * Initialize the language server (send LSP initialize request).
      */
     public CompletableFuture<Void> initialize() {
+        var config = super.getConfig();
         // If connected to external instance (IDE), server is already initialized
         if (isSocketConnection && currentInstance != null) {
             LOG.infof("%s already initialized by IDE (port %d, PID %d)",
@@ -524,7 +488,7 @@ public class LspServer {
                     setStatus(ServerStatus.RUNNING);
                     // For generic servers, ready after initialization
                     // Subclasses like JdtLsServer may override this behavior
-                    isReady = true;
+                    setReady(true);
                     setStatusMessage("Ready");
                     return CompletableFuture.completedFuture(null);
                 });
@@ -546,8 +510,7 @@ public class LspServer {
         }
 
         // Send directly via Endpoint (JSON-RPC)
-        if (languageServer instanceof org.eclipse.lsp4j.jsonrpc.Endpoint) {
-            org.eclipse.lsp4j.jsonrpc.Endpoint endpoint = (org.eclipse.lsp4j.jsonrpc.Endpoint) languageServer;
+        if (languageServer instanceof org.eclipse.lsp4j.jsonrpc.Endpoint endpoint) {
             return endpoint.request(method, params)
                 .thenApply(result -> (Object) result);
         }
@@ -588,13 +551,14 @@ public class LspServer {
 
         return languageServer.getWorkspaceService()
             .executeCommand(commandParams)
-            .thenApply(result -> (Object) result);
+            .thenApply(result -> result);
     }
 
     /**
      * Shutdown the language server.
      */
     public CompletableFuture<Void> shutdown() {
+        var config = super.getConfig();
         LOG.infof("Shutting down %s for workspace: %s", config.getId(), workspaceRoot);
 
         // Set status based on current connection type
@@ -677,6 +641,7 @@ public class LspServer {
      * - ${user.name} → system user name
      */
     protected List<String> buildCommand() throws IOException {
+        var config = super.getConfig();
         String cmd = config.getCommandForCurrentOS();
         if (cmd == null) {
             throw new IOException("No command configured for current OS");
@@ -734,7 +699,7 @@ public class LspServer {
             if (c == '"') {
                 inQuotes = !inQuotes;
             } else if (c == ' ' && !inQuotes) {
-                if (current.length() > 0) {
+                if (!current.isEmpty()) {
                     args.add(current.toString());
                     current.setLength(0);
                 }
@@ -743,7 +708,7 @@ public class LspServer {
             }
         }
 
-        if (current.length() > 0) {
+        if (!current.isEmpty()) {
             args.add(current.toString());
         }
 
@@ -794,34 +759,6 @@ public class LspServer {
         return diagnosticsCache;
     }
 
-    public LspServerConfig getConfig() {
-        return config;
-    }
-
-
-    public ServerStatus getStatus() {
-        return status;
-    }
-
-    public String getStatusMessage() {
-        return statusMessage;
-    }
-
-    public void setStatusMessage(String statusMessage) {
-        String oldMessage = this.statusMessage;
-        this.statusMessage = statusMessage;
-
-        LOG.infof("[%s] setStatusMessage called: %s -> %s (callback: %s)",
-            config.getId(), oldMessage, statusMessage, statusChangeCallback != null);
-
-        // Notify if message changed and callback is registered
-        if (statusChangeCallback != null && !java.util.Objects.equals(oldMessage, statusMessage)) {
-            LOG.infof("[%s] Status message changed, firing callback", config.getId());
-            // Trigger status change callback to refresh UI
-            statusChangeCallback.accept(this.status);
-        }
-    }
-
     /**
      * Get the process ID of the running server (if available).
      */
@@ -836,50 +773,8 @@ public class LspServer {
      * Get the start command used to launch the server.
      */
     public String getStartCommand() {
+        var config = super.getConfig();
         return config.getCommandForCurrentOS();
-    }
-
-    /**
-     * Check if the language server is ready to handle requests.
-     * For most servers, this is true after initialize() completes (status == RUNNING).
-     * For servers like JDT.LS, this is determined by specific notifications (e.g., language/status).
-     * Subclasses can override this method to provide custom readiness detection.
-     */
-    public boolean isReady() {
-        return isReady;
-    }
-
-    /**
-     * Wait until the server is ready, with a timeout.
-     * Returns a CompletableFuture that completes when the server is ready.
-     */
-    public CompletableFuture<Void> waitUntilReady(long timeoutMs) {
-        if (isReady) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        return CompletableFuture.runAsync(() -> {
-            long startTime = System.currentTimeMillis();
-            while (!isReady && (System.currentTimeMillis() - startTime) < timeoutMs) {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted while waiting for server to be ready", e);
-                }
-            }
-            if (!isReady) {
-                throw new RuntimeException("Server not ready after " + timeoutMs + "ms");
-            }
-        }, executorService);
-    }
-
-    /**
-     * Set the ready state of the language server.
-     * Called by subclasses when they detect the server is ready (e.g., JdtLsServer on language/status).
-     */
-    protected void setReady(boolean ready) {
-        this.isReady = ready;
     }
 
     public LspInstanceRegistry.InstanceInfo getCurrentInstance() {
@@ -946,6 +841,7 @@ public class LspServer {
      * Start watching instance files for changes (IDE start/stop detection).
      */
     private void startFileWatcher(String workspacePath) {
+        var config = super.getConfig();
         try {
             fileWatcher = new InstanceFileWatcher(
                 workspacePath,
@@ -1054,125 +950,6 @@ public class LspServer {
     }
 
     /**
-     * DEPRECATED: Routing is now handled by GenericLanguageClient.request() via Endpoint interface.
-     * This method is no longer used.
-     */
-    @Deprecated
-    private Object createRoutingServiceObject_UNUSED(LanguageClient client) {
-        LOG.infof("Creating routing service object for %s", config.getId());
-
-        // Create a delegating endpoint that intercepts requests
-        org.eclipse.lsp4j.jsonrpc.Endpoint delegatingEndpoint = new org.eclipse.lsp4j.jsonrpc.Endpoint() {
-            private org.eclipse.lsp4j.jsonrpc.Endpoint clientEndpoint;
-
-            @Override
-            public CompletableFuture<?> request(String method, Object parameter) {
-                LOG.infof("[%s] Endpoint.request() called with method: %s", config.getId(), method);
-
-                // Handle client/registerCapability
-                if (LspNotificationConstants.CLIENT_REGISTER_CAPABILITY.equals(method)) {
-                    if (parameter instanceof RegistrationParams) {
-                        clientFeatures.registerCapability((RegistrationParams) parameter);
-                        return CompletableFuture.completedFuture(null);
-                    }
-                }
-
-                // Handle client/unregisterCapability
-                if (LspNotificationConstants.CLIENT_UNREGISTER_CAPABILITY.equals(method)) {
-                    if (parameter instanceof UnregistrationParams) {
-                        clientFeatures.unregisterCapability((UnregistrationParams) parameter);
-                        return CompletableFuture.completedFuture(null);
-                    }
-                }
-
-                // Check if this request should be routed to another server (bindRequest)
-                BindRequestInfo bindInfo = findBindRequestInfo(method);
-
-                if (bindInfo != null && requestRouter != null) {
-                    LOG.infof("Routing bindRequest %s to server %s (mode: %s)",
-                        method, bindInfo.targetServerId, bindInfo.mode);
-                    return requestRouter.routeRequest(bindInfo.targetServerId, method, parameter, bindInfo.mode);
-                }
-
-                LOG.debugf("[%s] Request %s is not a bindRequest, not routing", config.getId(), method);
-
-                // Otherwise, delegate to client endpoint
-                if (clientEndpoint == null) {
-                    return CompletableFuture.failedFuture(
-                        new UnsupportedOperationException("Request not supported: " + method)
-                    );
-                }
-                return clientEndpoint.request(method, parameter);
-            }
-
-            @Override
-            public void notify(String method, Object parameter) {
-                if (clientEndpoint != null) {
-                    clientEndpoint.notify(method, parameter);
-                }
-            }
-
-            // Store the client endpoint when it's set by ServiceEndpoints
-            public void setClientEndpoint(org.eclipse.lsp4j.jsonrpc.Endpoint endpoint) {
-                this.clientEndpoint = endpoint;
-            }
-        };
-
-        // Return composite service that implements both LanguageClient and Endpoint
-        return new CompositeService(client, delegatingEndpoint);
-    }
-
-    /**
-     * Composite service that implements both LanguageClient and Endpoint.
-     */
-    private class CompositeService implements LanguageClient, org.eclipse.lsp4j.jsonrpc.Endpoint {
-        private final LanguageClient client;
-        private final org.eclipse.lsp4j.jsonrpc.Endpoint customEndpoint;
-
-        CompositeService(LanguageClient client, org.eclipse.lsp4j.jsonrpc.Endpoint customEndpoint) {
-            this.client = client;
-            this.customEndpoint = customEndpoint;
-        }
-
-        // Delegate all LanguageClient methods to the wrapped client
-        @Override
-        public void telemetryEvent(Object object) {
-            client.telemetryEvent(object);
-        }
-
-        @Override
-        public void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
-            client.publishDiagnostics(diagnostics);
-        }
-
-        @Override
-        public void showMessage(MessageParams messageParams) {
-            client.showMessage(messageParams);
-        }
-
-        @Override
-        public CompletableFuture<MessageActionItem> showMessageRequest(ShowMessageRequestParams requestParams) {
-            return client.showMessageRequest(requestParams);
-        }
-
-        @Override
-        public void logMessage(MessageParams message) {
-            client.logMessage(message);
-        }
-
-        // Endpoint methods - intercept for bindRequest routing
-        @Override
-        public CompletableFuture<?> request(String method, Object parameter) {
-            return customEndpoint.request(method, parameter);
-        }
-
-        @Override
-        public void notify(String method, Object parameter) {
-            customEndpoint.notify(method, parameter);
-        }
-    }
-
-    /**
      * Information about a bindRequest routing.
      */
     private static class BindRequestInfo {
@@ -1190,6 +967,7 @@ public class LspServer {
      * Returns binding info (target server + mode), or null if not a bindRequest.
      */
     private BindRequestInfo findBindRequestInfo(String requestMethod) {
+        var config = super.getConfig();
         LOG.infof("[%s] Looking for bindRequest routing for method: %s", config.getId(), requestMethod);
 
         // Check our own config's contributes sections
@@ -1260,6 +1038,7 @@ public class LspServer {
      * @return initialization options object, or null if none
      */
     protected Object prepareInitializationOptions() {
+        var config = super.getConfig();
         // Default: use options from config if present
         if (config.getInitializationOptions() != null && !config.getInitializationOptions().isEmpty()) {
             return config.getInitializationOptions();
@@ -1272,6 +1051,7 @@ public class LspServer {
      * Returns "off", "messages", or "verbose" (default).
      */
     private String getTraceLevelFromConfig() {
+        var config = super.getConfig();
         try {
             Path configFile = pathManager.getGlobalConfigFile();
             if (!Files.exists(configFile)) {

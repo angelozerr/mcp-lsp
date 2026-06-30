@@ -1,6 +1,6 @@
 package com.redhat.mcp.languagetools.admin.dto;
 
-import com.redhat.mcp.languagetools.lsp.server.ServerStatus;
+import com.redhat.mcp.languagetools.server.ServerStatus;
 
 /**
  * Runtime state of a server in a specific workspace.

@@ -5,9 +5,8 @@ import com.redhat.mcp.languagetools.admin.dto.ServerDTOBuilder;
 import com.redhat.mcp.languagetools.admin.dto.ServerRuntimeDTO;
 import com.redhat.mcp.languagetools.admin.dto.WorkspaceDTO;
 import com.redhat.mcp.languagetools.dap.server.DapServerConfig;
-import com.redhat.mcp.languagetools.lsp.server.LspServerConfig;
 import com.redhat.mcp.languagetools.workspace.Workspace;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
+import com.redhat.mcp.languagetools.ApplicationManager;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -25,10 +24,13 @@ public class AdminResource {
     private static final Logger LOG = Logger.getLogger(AdminResource.class);
 
     @Inject
-    WorkspaceManager workspaceManager;
+    ApplicationManager applicationManager;
 
     @Inject
     ServerDTOBuilder serverDTOBuilder;
+
+    @Inject
+    com.redhat.mcp.languagetools.dap.session.DapSessionManager dapSessionManager;
 
     @GET
     @Path("/workspaces")
@@ -43,7 +45,7 @@ public class AdminResource {
      */
 
     private List<WorkspaceDTO> getCurrentWorkspaces() {
-        return workspaceManager.getWorkspaces().entrySet().stream()
+        return applicationManager.getWorkspaces().entrySet().stream()
                 .map(entry -> toDTO(entry.getKey(), entry.getValue()))
                 .toList();
     }
@@ -52,7 +54,7 @@ public class AdminResource {
     @Path("/workspaces/{uri}")
     public WorkspaceDTO getWorkspace(@PathParam("uri") String uriParam) {
         URI uri = URI.create(uriParam);
-        Workspace workspace = workspaceManager.getWorkspaces().get(uri);
+        Workspace workspace = applicationManager.getWorkspaces().get(uri);
         if (workspace == null) {
             throw new NotFoundException("Workspace not found: " + uri);
         }
@@ -67,7 +69,7 @@ public class AdminResource {
     public Response closeWorkspace(@PathParam("uri") String uriParam) {
         URI uri = URI.create(uriParam);
 
-        workspaceManager.closeWorkspace(uri).join();
+        applicationManager.closeWorkspace(uri).join();
 
         return Response.ok()
                 .entity("{\"status\": \"closed\", \"uri\": \"" + uri + "\"}")
@@ -76,7 +78,7 @@ public class AdminResource {
 
     private WorkspaceDTO toDTO(URI uri, Workspace workspace) {
         // Get all available server descriptors
-        var allServerConfigs = workspaceManager.getServerConfigs();
+        var allServerConfigs = applicationManager.getLspServerConfigs();
 
         // Build runtime DTOs for all LSP servers in this workspace
         List<ServerRuntimeDTO> servers = allServerConfigs.values().stream()
@@ -97,8 +99,23 @@ public class AdminResource {
                 ))
                 .toList();
 
-        LOG.infof("Workspace %s - mcpClients: %s, dapServers: %d", uri, mcpClients, dapServers.size());
-        return new WorkspaceDTO(uri, workspace.isInitialized(), mcpClients, servers, dapServers);
+        // Build DAP session DTOs for this workspace
+        List<WorkspaceDTO.DapSessionDTO> dapSessions = dapSessionManager.getAllSessions().stream()
+                .filter(session -> session.getWorkspaceContext().getWorkspaceRoot().equals(uri))
+                .map(session -> new WorkspaceDTO.DapSessionDTO(
+                    session.getSessionId(),
+                    session.getSessionName(),
+                    session.getServerConfig().getId(),
+                    session.getState().name(),
+                    session.getLanguage()
+                ))
+                .collect(Collectors.toList());
+
+        LOG.infof("Workspace %s - mcpClients: %s, dapServers: %d, dapSessions: %d",
+            uri, mcpClients, dapServers.size(), dapSessions.size());
+        // Note: dapServers are DAP configs for this workspace (from workspace.getDapServerConfigs())
+        // They could be different per workspace, like LSP servers
+        return new WorkspaceDTO(uri, workspace.isInitialized(), mcpClients, servers, dapServers, dapSessions);
     }
 
     /**
@@ -107,7 +124,7 @@ public class AdminResource {
     @GET
     @Path("/dap-servers")
     public List<DapServerDTO> listDapServers() {
-        return workspaceManager.getDapServerConfigs().values().stream()
+        return applicationManager.getDapServerConfigs().values().stream()
                 .map(this::toDapDTO)
                 .collect(Collectors.toList());
     }

@@ -6,7 +6,7 @@ import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 import com.redhat.mcp.languagetools.workspace.Workspace;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
+import com.redhat.mcp.languagetools.ApplicationManager;
 
 import java.net.URI;
 import java.util.Map;
@@ -21,13 +21,13 @@ public class WorkspaceTools {
     private static final Logger LOG = Logger.getLogger(WorkspaceTools.class);
 
     @Inject
-    WorkspaceManager workspaceManager;
+    ApplicationManager applicationManager;
 
     @Tool(description = "Get information about all active workspaces, including root URIs and language server count. " +
                         "Workspaces are initialized automatically when using diagnostics tools.")
     public String listWorkspaces() {
         try {
-            Map<URI, Workspace> workspaces = workspaceManager.getWorkspaces();
+            Map<URI, Workspace> workspaces = applicationManager.getWorkspaces();
 
             if (workspaces.isEmpty()) {
                 return "No workspaces currently active";
@@ -49,7 +49,7 @@ public class WorkspaceTools {
     @Tool(description = "Get information about configured language servers (ID, name, description)")
     public String listLanguageServers() {
         try {
-            var servers = workspaceManager.getServerConfigs();
+            var servers = applicationManager.getLspServerConfigs();
 
             if (servers.isEmpty()) {
                 return "No language servers configured";

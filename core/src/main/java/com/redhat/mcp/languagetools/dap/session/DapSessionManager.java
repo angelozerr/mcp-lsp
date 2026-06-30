@@ -4,7 +4,7 @@ import com.redhat.mcp.languagetools.ApplicationContext;
 import com.redhat.mcp.languagetools.WorkspaceContext;
 import com.redhat.mcp.languagetools.dap.server.DapServerConfig;
 import com.redhat.mcp.languagetools.workspace.Workspace;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
+import com.redhat.mcp.languagetools.ApplicationManager;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -29,12 +29,69 @@ public class DapSessionManager implements ApplicationContext {
     private static final Logger LOG = Logger.getLogger(DapSessionManager.class);
 
     @Inject
-    WorkspaceManager workspaceManager;
+    ApplicationManager applicationManager;
 
     @Inject
     com.redhat.mcp.languagetools.PathManager pathManager;
 
+    @Inject
+    com.redhat.mcp.languagetools.dap.trace.DapTraceCollector traceCollector;
+
     private final Map<String, DapSession> sessions = new ConcurrentHashMap<>();
+
+    /**
+     * Create a new debug session for a specific DAP server.
+     *
+     * @param workspaceUri Workspace URI for context
+     * @param dapServerId DAP server ID (e.g., "debugpy", "vscode-js-debug")
+     * @param sessionName User-friendly name for the session
+     * @return Created DapSession
+     */
+    public DapSession createSession(URI workspaceUri, String dapServerId, String sessionName) {
+        LOG.infof("Creating debug session: workspace=%s, dapServerId=%s, name=%s",
+            workspaceUri, dapServerId, sessionName);
+
+        // Find workspace
+        Workspace workspace = applicationManager.getWorkspaces().get(workspaceUri);
+        if (workspace == null) {
+            throw new IllegalArgumentException("Workspace not found: " + workspaceUri);
+        }
+
+        // Find DAP server config
+        DapServerConfig serverConfig = findDapServerById(workspace, dapServerId);
+        if (serverConfig == null) {
+            throw new IllegalArgumentException("DAP server not found: " + dapServerId);
+        }
+
+        // Set trace collector for installation support
+        String sessionId = UUID.randomUUID().toString();
+        if (serverConfig.getTraceCollector() == null) {
+            // Create a TraceCollector wrapper around DapTraceCollector
+            serverConfig.setTraceCollector(new DapTraceCollectorWrapper(traceCollector, sessionId, dapServerId, serverConfig.getName()));
+        }
+
+        // Determine language from server config (first supported language)
+        String language = extractLanguageFromConfig(serverConfig);
+
+        // Create session
+        WorkspaceContext wsContext = createWorkspaceContext(workspace);
+
+        DapSession session = new DapSession(
+            sessionId,
+            language,
+            sessionName,
+            serverConfig,
+            this,
+            wsContext,
+            traceCollector
+        );
+
+        sessions.put(sessionId, session);
+        LOG.infof("Created session %s for %s (%s)", sessionId, language, sessionName);
+
+        // Don't initialize yet - initialization (including installation) happens on first launch
+        return session;
+    }
 
     /**
      * Create a new debug session for a specific language.
@@ -50,7 +107,7 @@ public class DapSessionManager implements ApplicationContext {
         LOG.infof("Creating debug session for language '%s' in workspace %s", language, workspaceUri);
 
         // Find workspace
-        Workspace workspace = workspaceManager.getWorkspaces().get(workspaceUri);
+        Workspace workspace = applicationManager.getWorkspaces().get(workspaceUri);
         if (workspace == null) {
             return CompletableFuture.failedFuture(
                 new IllegalArgumentException("Workspace not found: " + workspaceUri)
@@ -75,7 +132,8 @@ public class DapSessionManager implements ApplicationContext {
             sessionName,
             serverConfig,
             this,
-            wsContext
+            wsContext,
+            traceCollector
         );
 
         sessions.put(sessionId, session);
@@ -118,16 +176,27 @@ public class DapSessionManager implements ApplicationContext {
     }
 
     /**
-     * Get a session by ID.
-     *
-     * @throws IllegalArgumentException if session not found
+     * Get all active sessions.
+     */
+    public List<DapSession> getAllSessions() {
+        return new ArrayList<>(sessions.values());
+    }
+
+    /**
+     * Get a session by ID (returns null if not found).
      */
     public DapSession getSession(String sessionId) {
-        DapSession session = sessions.get(sessionId);
-        if (session == null) {
-            throw new IllegalArgumentException("Debug session not found: " + sessionId);
+        return sessions.get(sessionId);
+    }
+
+    /**
+     * Remove a session from the manager.
+     */
+    public void removeSession(String sessionId) {
+        DapSession session = sessions.remove(sessionId);
+        if (session != null) {
+            LOG.infof("Removed session: %s", sessionId);
         }
-        return session;
     }
 
     /**
@@ -169,7 +238,7 @@ public class DapSessionManager implements ApplicationContext {
     public List<String> listSupportedLanguages() {
         Set<String> languages = new HashSet<>();
 
-        Map<String, DapServerConfig> dapConfigs = workspaceManager.getDapServerConfigs();
+        Map<String, DapServerConfig> dapConfigs = applicationManager.getDapServerConfigs();
         for (DapServerConfig config : dapConfigs.values()) {
             if (config.getDocumentSelector() != null) {
                 config.getDocumentSelector().forEach(selector -> {
@@ -206,6 +275,36 @@ public class DapSessionManager implements ApplicationContext {
     // ========== Helper Methods ==========
 
     /**
+     * Find DAP server by ID.
+     */
+    private DapServerConfig findDapServerById(Workspace workspace, String dapServerId) {
+        // First check global DAP servers
+        Map<String, DapServerConfig> globalDapServers = applicationManager.getDapServerConfigs();
+        DapServerConfig config = globalDapServers.get(dapServerId);
+        if (config != null) {
+            return config;
+        }
+
+        // Then check workspace-specific DAP servers
+        Map<String, DapServerConfig> workspaceDapServers = workspace.getDapServerConfigs();
+        return workspaceDapServers.get(dapServerId);
+    }
+
+    /**
+     * Extract language from DAP server config (first supported language).
+     */
+    private String extractLanguageFromConfig(DapServerConfig config) {
+        if (config.getDocumentSelector() != null && !config.getDocumentSelector().isEmpty()) {
+            String lang = config.getDocumentSelector().get(0).getLanguage();
+            if (lang != null) {
+                return lang;
+            }
+        }
+        // Fallback: derive from server ID
+        return config.getId();
+    }
+
+    /**
      * Find the appropriate DAP server for a language.
      */
     private DapServerConfig findDapServerForLanguage(Workspace workspace, String language) {
@@ -218,7 +317,7 @@ public class DapSessionManager implements ApplicationContext {
         }
 
         // Fallback to global DAP servers
-        Map<String, DapServerConfig> globalDapServers = workspaceManager.getDapServerConfigs();
+        Map<String, DapServerConfig> globalDapServers = applicationManager.getDapServerConfigs();
         for (DapServerConfig config : globalDapServers.values()) {
             if (supportsLanguage(config, language)) {
                 return config;

@@ -2,7 +2,7 @@ package com.redhat.mcp.languagetools.dap.tools;
 
 import com.redhat.mcp.languagetools.dap.session.DapSession;
 import com.redhat.mcp.languagetools.dap.session.DapSessionManager;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
+import com.redhat.mcp.languagetools.ApplicationManager;
 import io.quarkiverse.mcp.server.Tool;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
@@ -11,7 +11,6 @@ import org.eclipse.lsp4j.debug.Thread;
 
 import java.net.URI;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -30,7 +29,7 @@ public class DapDebugTools {
     DapSessionManager sessionManager;
 
     @Inject
-    WorkspaceManager workspaceManager;
+    ApplicationManager applicationManager;
 
     // ========== Session Management ==========
 
@@ -132,7 +131,15 @@ public class DapDebugTools {
             Map<String, Object> additionalArgs) {
 
         DapSession session = sessionManager.getSession(sessionId);
-        return session.launch(scriptPath, additionalArgs).join();
+
+        // Build launch config
+        Map<String, Object> launchConfig = new java.util.HashMap<>();
+        launchConfig.put("program", scriptPath);
+        if (additionalArgs != null) {
+            launchConfig.putAll(additionalArgs);
+        }
+
+        return session.launch(launchConfig).join();
     }
 
     @Tool(description = "Attach debugger to an already running process by process ID.")

@@ -1,9 +1,12 @@
-package com.redhat.mcp.languagetools.lsp.server;
+package com.redhat.mcp.languagetools.server;
 
 /**
  * LSP Server status.
  */
 public enum ServerStatus {
+
+    NOT_STARTED,
+
     /**
      * Server is being installed.
      */
@@ -54,6 +57,7 @@ public enum ServerStatus {
      */
     CONNECTED_TO_IDE,
 
+    ERROR,
     /**
      * Disconnecting from an external LSP server instance.
      */

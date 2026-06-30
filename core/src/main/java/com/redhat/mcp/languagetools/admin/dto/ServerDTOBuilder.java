@@ -2,13 +2,10 @@ package com.redhat.mcp.languagetools.admin.dto;
 
 import com.redhat.mcp.languagetools.lsp.server.LspServer;
 import com.redhat.mcp.languagetools.lsp.server.LspServerConfig;
-import com.redhat.mcp.languagetools.lsp.server.ServerStatus;
+import com.redhat.mcp.languagetools.server.ServerStatus;
 import com.redhat.mcp.languagetools.workspace.Workspace;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-
-import java.util.List;
-import java.util.Map;
 
 /**
  * Builder for Server DTOs (Config and Runtime).

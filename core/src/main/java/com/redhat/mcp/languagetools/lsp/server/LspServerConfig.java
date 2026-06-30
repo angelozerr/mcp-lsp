@@ -1,8 +1,8 @@
 package com.redhat.mcp.languagetools.lsp.server;
 
+import com.redhat.mcp.languagetools.server.ServerConfigBase;
 import com.redhat.mcp.languagetools.lsp.Contributes;
 import com.redhat.mcp.languagetools.lsp.DocumentSelector;
-import com.redhat.mcp.languagetools.lsp.installer.InstallerConfig;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,12 +13,7 @@ import java.util.Map;
  * Configuration for a language server.
  * Can be loaded from JSON or built programmatically.
  */
-public class LspServerConfig {
-
-    /**
-     * Server ID (unique identifier)
-     */
-    private String id;
+public class LspServerConfig extends ServerConfigBase {
 
     /**
      * Command to execute the language server (simple string or OS-specific map)
@@ -34,11 +29,6 @@ public class LspServerConfig {
     private List<String> args = new ArrayList<>();
 
     /**
-     * Document selectors (which files this server handles)
-     */
-    private List<DocumentSelector> documentSelector = new ArrayList<>();
-
-    /**
      * Environment variables
      */
     private Map<String, String> env = new HashMap<>();
@@ -52,21 +42,6 @@ public class LspServerConfig {
      * Server initialization options
      */
     private Map<String, Object> initializationOptions = new HashMap<>();
-
-    /**
-     * Installer configuration (optional)
-     */
-    private InstallerConfig installer;
-
-    /**
-     * Human-readable name
-     */
-    private String name;
-
-    /**
-     * Description
-     */
-    private String description;
 
     /**
      * True if this is a pure extension (server-extension.json), false if it's a server (server.json).
@@ -114,12 +89,12 @@ public class LspServerConfig {
         }
 
         public Builder documentSelector(List<DocumentSelector> selectors) {
-            config.documentSelector = new ArrayList<>(selectors);
+            config.setDocumentSelector(new ArrayList<>(selectors));
             return this;
         }
 
         public Builder addDocumentSelector(DocumentSelector selector) {
-            config.documentSelector.add(selector);
+            config.getDocumentSelector().add(selector);
             return this;
         }
 
@@ -144,7 +119,7 @@ public class LspServerConfig {
                 throw new IllegalStateException("command or contributes is required");
             }
             // documentSelector is optional for contribution-only configs
-            if (config.documentSelector.isEmpty() && config.command != null) {
+            if (config.getDocumentSelector().isEmpty() && config.command != null) {
                 throw new IllegalStateException("documentSelector is required for servers with command");
             }
             return config;
@@ -155,7 +130,7 @@ public class LspServerConfig {
      * Check if this server can handle the given file.
      */
     public boolean canHandle(String uri, String language) {
-        return documentSelector.stream()
+        return getDocumentSelector().stream()
                 .anyMatch(selector -> selector.matches(uri, language));
     }
 
@@ -166,14 +141,7 @@ public class LspServerConfig {
         return command == null && contributes != null;
     }
 
-    // Getters and setters
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
+    // Getters and setters (id, name, description, installer inherited from ServerConfigBase)
 
     public Object getCommand() {
         return command;
@@ -215,14 +183,6 @@ public class LspServerConfig {
         this.args = args;
     }
 
-    public List<DocumentSelector> getDocumentSelector() {
-        return documentSelector;
-    }
-
-    public void setDocumentSelector(List<DocumentSelector> documentSelector) {
-        this.documentSelector = documentSelector;
-    }
-
     public Map<String, String> getEnv() {
         return env;
     }
@@ -245,30 +205,6 @@ public class LspServerConfig {
 
     public void setInitializationOptions(Map<String, Object> initializationOptions) {
         this.initializationOptions = initializationOptions;
-    }
-
-    public InstallerConfig getInstaller() {
-        return installer;
-    }
-
-    public void setInstaller(InstallerConfig installer) {
-        this.installer = installer;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
     }
 
     public boolean isExtension() {
@@ -294,7 +230,7 @@ public class LspServerConfig {
                 ", name='" + name + '\'' +
                 ", command='" + command + '\'' +
                 ", args=" + args +
-                ", documentSelector=" + documentSelector +
+                ", documentSelector=" + getDocumentSelector() +
                 '}';
     }
 }

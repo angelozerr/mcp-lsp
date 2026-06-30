@@ -1,55 +1,23 @@
 package com.redhat.mcp.languagetools.dap.server;
 
-import com.redhat.mcp.languagetools.lsp.DocumentSelector;
-import com.redhat.mcp.languagetools.lsp.installer.InstallerConfig;
+import com.redhat.mcp.languagetools.server.ServerConfigBase;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
  * DAP (Debug Adapter Protocol) server configuration loaded from server.json.
  * Similar to LspServerConfig but with DAP-specific fields.
  */
-public class DapServerConfig {
+public class DapServerConfig extends ServerConfigBase {
 
-    private String id;
-    private String name;
-    private String description;
     private Map<String, String> launch;  // OS-specific launch commands
     private Map<String, Object> attach;  // Attach configuration
     private String debugServerReadyPattern;
-    private List<DocumentSelector> documentSelector = new ArrayList<>();
     private Map<String, Object> env = new HashMap<>();
     private String workingDirectory;
-    private InstallerConfig installer;
 
-    // Getters and setters
-
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
+    // Getters and setters (id, name, description, installer, documentSelector, trace inherited from ServerConfigBase)
 
     public Map<String, String> getLaunch() {
         return launch;
@@ -93,14 +61,6 @@ public class DapServerConfig {
         this.debugServerReadyPattern = debugServerReadyPattern;
     }
 
-    public List<DocumentSelector> getDocumentSelector() {
-        return documentSelector;
-    }
-
-    public void setDocumentSelector(List<DocumentSelector> documentSelector) {
-        this.documentSelector = documentSelector;
-    }
-
     public Map<String, Object> getEnv() {
         return env;
     }
@@ -115,13 +75,5 @@ public class DapServerConfig {
 
     public void setWorkingDirectory(String workingDirectory) {
         this.workingDirectory = workingDirectory;
-    }
-
-    public InstallerConfig getInstaller() {
-        return installer;
-    }
-
-    public void setInstaller(InstallerConfig installer) {
-        this.installer = installer;
     }
 }

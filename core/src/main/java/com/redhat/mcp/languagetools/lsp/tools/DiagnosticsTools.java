@@ -11,7 +11,7 @@ import com.redhat.mcp.languagetools.lsp.server.LspServer;
 import com.redhat.mcp.languagetools.lsp.annotations.RequireDidOpen;
 import com.redhat.mcp.languagetools.tools.ToolArgDescriptions;
 import com.redhat.mcp.languagetools.workspace.Workspace;
-import com.redhat.mcp.languagetools.workspace.WorkspaceManager;
+import com.redhat.mcp.languagetools.ApplicationManager;
 
 import java.io.File;
 import java.net.URI;
@@ -27,7 +27,7 @@ public class DiagnosticsTools {
     private static final Logger LOG = Logger.getLogger(DiagnosticsTools.class);
 
     @Inject
-    WorkspaceManager workspaceManager;
+    ApplicationManager applicationManager;
 
     @Tool(description = "Get diagnostics (errors, warnings) for a file from all language servers. " +
                         "The workspace is auto-detected and initialized if needed. " +
@@ -41,7 +41,7 @@ public class DiagnosticsTools {
             URI uri = URI.create(fileUri);
             LOG.infof("Getting diagnostics for: %s (from cwd: %s)", uri, cwd);
 
-            Workspace ws = workspaceManager.getWorkspaceForFile(uri).join();
+            Workspace ws = applicationManager.getWorkspaceForFile(uri).join();
 
             StringBuilder result = new StringBuilder();
             result.append("Diagnostics for: ").append(uri).append("\n\n");
@@ -99,7 +99,7 @@ public class DiagnosticsTools {
             URI uri = new File(cwd).toURI();
             LOG.infof("Getting all diagnostics for workspace: %s", uri);
 
-            Workspace ws = workspaceManager.getOrCreateWorkspace(uri);
+            Workspace ws = applicationManager.getOrCreateWorkspace(uri);
 
             StringBuilder result = new StringBuilder();
             result.append("All diagnostics for workspace: ").append(uri).append("\n\n");

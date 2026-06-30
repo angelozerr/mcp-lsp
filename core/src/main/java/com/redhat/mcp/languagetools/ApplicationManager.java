@@ -1,19 +1,17 @@
-package com.redhat.mcp.languagetools.workspace;
+package com.redhat.mcp.languagetools;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import com.redhat.mcp.languagetools.PathManager;
 import com.redhat.mcp.languagetools.dap.server.DapServerConfig;
 import com.redhat.mcp.languagetools.language.LanguageRegistry;
-import com.redhat.mcp.languagetools.lsp.*;
-import com.redhat.mcp.languagetools.lsp.installer.InstallerContext;
-import com.redhat.mcp.languagetools.lsp.installer.task.InstallerTaskRegistry;
+import com.redhat.mcp.languagetools.lsp.LspContributionManager;
 import com.redhat.mcp.languagetools.lsp.server.LspServerConfig;
 import com.redhat.mcp.languagetools.lsp.server.LspServerStatusChangeEvent;
 import com.redhat.mcp.languagetools.lsp.server.ServerDescriptorLoader;
-import com.redhat.mcp.languagetools.lsp.server.ServerStatus;
+import com.redhat.mcp.languagetools.mcp.McpClientTracker;
+import com.redhat.mcp.languagetools.server.ServerStatus;
 import com.redhat.mcp.languagetools.lsp.trace.LspTraceCollector;
 
+import com.redhat.mcp.languagetools.workspace.Workspace;
+import com.redhat.mcp.languagetools.workspace.WorkspaceChangeEvent;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -21,10 +19,8 @@ import jakarta.enterprise.event.Event;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import com.redhat.mcp.languagetools.admin.McpClientChangeEvent;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,47 +37,50 @@ import java.util.concurrent.ConcurrentHashMap;
  * Workspaces are created dynamically on-demand.
  */
 @ApplicationScoped
-public class WorkspaceManager {
+public class ApplicationManager {
 
-    private static final Logger LOG = Logger.getLogger(WorkspaceManager.class);
-
-    @Inject
-    ServerDescriptorLoader serverDescriptorLoader;
-
-    @Inject
-    com.redhat.mcp.languagetools.lsp.LspContributionManager lspContributionManager;
-
-    @Inject
-    LspTraceCollector traceCollector;
+    private static final Logger LOG = Logger.getLogger(ApplicationManager.class);
 
     @Inject
     LanguageRegistry languageRegistry;
 
     @Inject
-    com.redhat.mcp.languagetools.mcp.McpClientTracker mcpClientTracker;
+    PathManager pathManager;
 
     @Inject
     Event<WorkspaceChangeEvent> workspaceChangeEvent;
 
     @Inject
-    Event<McpClientChangeEvent> mcpClientChangeEvent;
+    ServerDescriptorLoader serverDescriptorLoader;
+
+    // ----------- LSP servers
+
+    @Inject
+    LspContributionManager lspContributionManager;
+
+    @Inject
+    LspTraceCollector lspTraceCollector;
 
     @Inject
     Event<LspServerStatusChangeEvent> lspServerStatusChangeEvent;
 
+    // ----------- MCP servers
+
     @Inject
-    PathManager pathManager;
+    McpClientTracker mcpClientTracker;
+
+    @Inject
+    Event<McpClientChangeEvent> mcpClientChangeEvent;
 
     private final Map<URI, Workspace> workspaces = new ConcurrentHashMap<>();
-    private final Map<String, LspServerConfig> serverConfigs = new ConcurrentHashMap<>();
+    private final Map<String, LspServerConfig> lspServerConfigs = new ConcurrentHashMap<>();
     private final Map<String, DapServerConfig> dapServerConfigs = new ConcurrentHashMap<>();
-    private final Map<String, Path> serverHomes = new ConcurrentHashMap<>();
 
     void onStart(@Observes StartupEvent ev) {
         LOG.info("WorkspaceManager starting...");
 
         // Load all bundled LSP server descriptors
-        serverConfigs.putAll(serverDescriptorLoader.loadAllBundled());
+        lspServerConfigs.putAll(serverDescriptorLoader.loadAllBundled());
 
         // Load all bundled DAP server descriptors
         dapServerConfigs.putAll(serverDescriptorLoader.loadAllDapBundled());
@@ -89,7 +88,7 @@ public class WorkspaceManager {
         // Initialize contribution manager with loaded configs
         initializeLspContributionManager();
 
-        LOG.infof("Loaded %d LSP server descriptors", serverConfigs.size());
+        LOG.infof("Loaded %d LSP server descriptors", lspServerConfigs.size());
         LOG.infof("Loaded %d DAP server descriptors", dapServerConfigs.size());
     }
 
@@ -102,7 +101,7 @@ public class WorkspaceManager {
      * Initialize the LspContributionManager with current server configs.
      */
     private void initializeLspContributionManager() {
-        lspContributionManager.initialize(serverConfigs);
+        lspContributionManager.initialize(lspServerConfigs);
     }
 
     /**
@@ -117,7 +116,7 @@ public class WorkspaceManager {
         boolean isNewWorkspace = !workspaces.containsKey(normalizedUri);
 
         Workspace workspace = workspaces.computeIfAbsent(normalizedUri, uri -> {
-            Workspace ws = new Workspace(uri, pathManager.getWorkspaceDataDir(), traceCollector, pathManager);
+            Workspace ws = new Workspace(uri, pathManager.getWorkspaceDataDir(), lspTraceCollector, pathManager);
 
             // Register callback for LSP server status changes
             ws.setServerStatusChangeCallback(event -> {
@@ -176,7 +175,7 @@ public class WorkspaceManager {
         // Find ALL servers that can handle this language (may be multiple, e.g., JDT.LS + MicroProfile LS for Java)
         List<CompletableFuture<Void>> serverFutures = new ArrayList<>();
 
-        for (LspServerConfig config : serverConfigs.values()) {
+        for (LspServerConfig config : lspServerConfigs.values()) {
             // Skip contribution-only configs (they don't run as servers)
             if (config.isContributionOnly()) {
                 continue;
@@ -194,10 +193,9 @@ public class WorkspaceManager {
                         LOG.infof("Found external %s instance (port %d, PID %d), skipping installation",
                                  config.getName(), externalInstance.port, externalInstance.pid);
 
-                        // No need to install, use a dummy serverHome (won't be used for socket connection)
-                        Path dummyHome = pathManager.getLspServerHome(config.getId());
+                        // No need to install (external instance), add server to workspace
                         workspace.setLspContributionManager(lspContributionManager);
-                        workspace.addLspServer(config, dummyHome, new ArrayList<>(serverConfigs.values()));
+                        workspace.addLspServer(config, new ArrayList<>(lspServerConfigs.values()));
 
                         // Start and initialize (will connect to socket)
                         var server = workspace.getLspServer(config.getId());
@@ -214,43 +212,17 @@ public class WorkspaceManager {
                         continue;
                     }
 
-                    // No external instance - need to install and start our own
-                    // Set status to INSTALLING
-                    workspace.setInstallationStatus(config.getId(), ServerStatus.INSTALLING);
+                    // No external instance - need to start our own (installation is handled by server)
+                    // Add server to workspace if not already present
+                    workspace.setLspContributionManager(lspContributionManager);
+                    if (workspace.getLspServer(config.getId()) == null) {
+                        workspace.addLspServer(config, new ArrayList<>(lspServerConfigs.values()));
+                    }
 
-                    // Ensure server is installed before starting (don't fail if one server fails)
-                    CompletableFuture<Void> future = ensureServerInstalled(config, workspace.getRootUri())
-                            .thenCompose(serverHome -> {
-                                if (serverHome == null) {
-                                    LOG.errorf("Failed to install %s, cannot start", config.getName());
-                                    workspace.setInstallationStatus(config.getId(), ServerStatus.INSTALL_FAILED);
-                                    return CompletableFuture.completedFuture(null);
-                                }
-
-                                // Clear installation status (will be replaced by server status)
-                                workspace.setInstallationStatus(config.getId(), null);
-
-                                // Add server to workspace
-                                workspace.setLspContributionManager(lspContributionManager);
-                                workspace.addLspServer(config, serverHome, new ArrayList<>(serverConfigs.values()));
-
-                                // Start and initialize
-                                var server = workspace.getLspServer(config.getId());
-                                if (server != null) {
-                                    return server.start()
-                                            .thenCompose(v -> server.initialize())
-                                            .exceptionally(ex -> {
-                                                LOG.errorf(ex, "Failed to start %s", config.getName());
-                                                workspace.setInstallationStatus(config.getId(), ServerStatus.START_FAILED);
-                                                return null;
-                                            });
-                                }
-
-                                return CompletableFuture.completedFuture(null);
-                            })
+                    // Start managed server (handles installation automatically)
+                    CompletableFuture<Void> future = workspace.startManagedLspServer(config.getId())
                             .exceptionally(ex -> {
-                                LOG.errorf(ex, "Error during installation of %s", config.getName());
-                                workspace.setInstallationStatus(config.getId(), ServerStatus.INSTALL_FAILED);
+                                LOG.errorf(ex, "Failed to start %s", config.getName());
                                 return null;
                             });
                     serverFutures.add(future);
@@ -304,135 +276,6 @@ public class WorkspaceManager {
         }
     }
 
-    /**
-     * Load installer.json from user config directory first, then fallback to bundled resources.
-     */
-    private JsonObject loadInstallerJson(String serverId, Gson gson) {
-        // Try user config directory first
-        Path userConfigPath = pathManager.getServerInstallerConfig(serverId);
-
-        try {
-            if (Files.exists(userConfigPath)) {
-                String content = Files.readString(userConfigPath);
-                LOG.infof("Loading installer.json from user config: %s", userConfigPath);
-                return gson.fromJson(content, JsonObject.class);
-            }
-        } catch (Exception e) {
-            LOG.warnf(e, "Failed to load user installer.json for %s", serverId);
-        }
-
-        // Fallback to bundled resources
-        String installerPath = "/lsp/" + serverId + "/installer.json";
-        try (var is = getClass().getResourceAsStream(installerPath)) {
-            if (is != null) {
-                LOG.infof("Loading installer.json from bundled resources: %s", installerPath);
-                return gson.fromJson(new InputStreamReader(is), JsonObject.class);
-            }
-        } catch (Exception e) {
-            LOG.warnf(e, "Failed to load bundled installer.json for %s", serverId);
-        }
-
-        return null;
-    }
-
-    /**
-     * Ensure a server is installed. Returns the installation directory.
-     * Thread-safe: multiple concurrent calls for the same server will wait for the same installation.
-     */
-    private synchronized CompletableFuture<Path> ensureServerInstalled(LspServerConfig config, java.net.URI workspaceUri) {
-        // Check if already in cache
-        Path cachedHome = serverHomes.get(config.getId());
-        if (cachedHome != null) {
-            return CompletableFuture.completedFuture(cachedHome);
-        }
-
-        // Load installer.json (user config or bundled)
-        Gson gson = new Gson();
-        JsonObject installerJson = loadInstallerJson(config.getId(), gson);
-        if (installerJson == null) {
-            LOG.warnf("No installer.json found for %s", config.getId());
-            return CompletableFuture.completedFuture(null);
-        }
-
-        try {
-            // Create context
-            InstallerContext context = new InstallerContext();
-            context.setProperty("server.id", config.getId());
-            context.setProperty("server.home", pathManager.getLspServerHome(config.getId()).toString());
-            context.setTraceCollector(traceCollector, workspaceUri.toString(), config.getId(), config.getName());
-
-            // Create task registry
-            InstallerTaskRegistry registry = new InstallerTaskRegistry();
-
-            // Execute check task if present
-            if (installerJson.has("check")) {
-                JsonObject checkJson = installerJson.getAsJsonObject("check");
-                var checkTask = registry.loadTask(checkJson);
-
-                if (checkTask.execute(context)) {
-                    // Already installed, get the directory from context or default
-                    String homeDir = context.getPropertyAsString("output.dir");
-                    if (homeDir == null) {
-                        homeDir = pathManager.getLspServerHome(config.getId()).toString();
-                    }
-                    Path home = Paths.get(homeDir);
-                    serverHomes.put(config.getId(), home);
-
-                    // Update config command from installer if present
-                    String installedCommand = context.getPropertyAsString("server.command");
-                    if (installedCommand != null) {
-                        config.setCommand(installedCommand);
-                        LOG.infof("%s command updated from installer: %s", config.getName(), installedCommand);
-                    }
-
-                    LOG.infof("%s already installed at: %s", config.getName(), home);
-                    return CompletableFuture.completedFuture(home);
-                }
-            }
-
-            // Not installed, execute run task
-            if (installerJson.has("run")) {
-                LOG.infof("Installing %s...", config.getName());
-                JsonObject runJson = installerJson.getAsJsonObject("run");
-                var runTask = registry.loadTask(runJson);
-
-                return CompletableFuture.supplyAsync(() -> {
-                    try {
-                        boolean success = runTask.execute(context);
-                        if (success) {
-                            String homeDir = context.getPropertyAsString("output.dir");
-                            if (homeDir != null) {
-                                Path home = Paths.get(homeDir);
-                                serverHomes.put(config.getId(), home);
-
-                                // Update config command from installer if present
-                                String installedCommand = context.getPropertyAsString("server.command");
-                                if (installedCommand != null) {
-                                    config.setCommand(installedCommand);
-                                    LOG.infof("%s command updated from installer: %s", config.getName(), installedCommand);
-                                }
-
-                                LOG.infof("%s installed successfully at: %s", config.getName(), home);
-                                return home;
-                            }
-                        }
-                        LOG.errorf("Failed to install %s", config.getName());
-                        return null;
-                    } catch (Exception e) {
-                        LOG.errorf(e, "Exception during installation of %s", config.getName());
-                        throw new RuntimeException("Installation failed: " + config.getName(), e);
-                    }
-                });
-            }
-
-            LOG.warnf("No run task in installer.json for %s", config.getId());
-            return CompletableFuture.completedFuture(null);
-
-        } catch (Exception e) {
-            LOG.errorf(e, "Failed to load/execute installer for %s", config.getId());
-            return CompletableFuture.failedFuture(e);
-        }
-    }
 
     /**
      * Get workspace from a file URI by detecting the workspace root.
@@ -549,8 +392,8 @@ public class WorkspaceManager {
         return Map.copyOf(workspaces);
     }
 
-    public Map<String, LspServerConfig> getServerConfigs() {
-        return Map.copyOf(serverConfigs);
+    public Map<String, LspServerConfig> getLspServerConfigs() {
+        return Map.copyOf(lspServerConfigs);
     }
 
     /**
@@ -591,7 +434,7 @@ public class WorkspaceManager {
      * Ensure a server is installed and added to the workspace, then start it.
      */
     public CompletableFuture<Void> ensureServerInstalled(String serverId, URI workspaceUri) {
-        LspServerConfig config = serverConfigs.get(serverId);
+        LspServerConfig config = lspServerConfigs.get(serverId);
         if (config == null) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Unknown server: " + serverId));
         }
@@ -601,36 +444,16 @@ public class WorkspaceManager {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Workspace not found: " + workspaceUri));
         }
 
-        // Set status to INSTALLING
-        workspace.setInstallationStatus(serverId, ServerStatus.INSTALLING);
+        // Add server to workspace if not already present
+        workspace.setLspContributionManager(lspContributionManager);
+        if (workspace.getLspServer(serverId) == null) {
+            workspace.addLspServer(config, new ArrayList<>(lspServerConfigs.values()));
+        }
 
-        // Install server
-        return ensureServerInstalled(config, workspaceUri)
-                .thenCompose(serverHome -> {
-                    if (serverHome == null) {
-                        LOG.errorf("Failed to install %s, cannot start", config.getName());
-                        workspace.setInstallationStatus(serverId, ServerStatus.INSTALL_FAILED);
-                        return CompletableFuture.completedFuture(null);
-                    }
-
-                    // Clear installation status
-                    workspace.setInstallationStatus(serverId, null);
-
-                    // Add server to workspace
-                    workspace.setLspContributionManager(lspContributionManager);
-                    workspace.addLspServer(config, serverHome, new ArrayList<>(serverConfigs.values()));
-
-                    // Start MCP-managed (do not connect to IDE)
-                    return workspace.startManagedLspServer(serverId)
-                            .exceptionally(ex -> {
-                                LOG.errorf(ex, "Failed to start %s", config.getName());
-                                workspace.setInstallationStatus(serverId, ServerStatus.START_FAILED);
-                                return null;
-                            });
-                })
+        // Start managed server (handles installation automatically)
+        return workspace.startManagedLspServer(serverId)
                 .exceptionally(ex -> {
-                    LOG.errorf(ex, "Error during installation of %s", config.getName());
-                    workspace.setInstallationStatus(serverId, ServerStatus.INSTALL_FAILED);
+                    LOG.errorf(ex, "Failed to start %s", config.getName());
                     return null;
                 });
     }

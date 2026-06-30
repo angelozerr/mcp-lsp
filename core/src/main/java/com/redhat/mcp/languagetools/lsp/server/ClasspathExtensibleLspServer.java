@@ -36,6 +36,7 @@ public class ClasspathExtensibleLspServer extends LspServer {
      */
     @Override
     protected List<String> buildCommand() throws IOException {
+        var config = super.getConfig();
         LOG.infof("ClasspathExtensibleLspServer.buildCommand() called for %s", config.getId());
 
         // Get base command from config
@@ -67,6 +68,7 @@ public class ClasspathExtensibleLspServer extends LspServer {
             return extensions;
         }
 
+        var config = super.getConfig();
         Map<String, JsonElement> contributions = extensionManager.getContributionsFor(config.getId());
 
         for (Map.Entry<String, JsonElement> entry : contributions.entrySet()) {
@@ -148,6 +150,7 @@ public class ClasspathExtensibleLspServer extends LspServer {
             newCommand.add(arg);
         }
 
+        var config = super.getConfig();
         if (!foundClasspath) {
             LOG.warnf("Could not inject classpath contributions into %s command (no -cp or -jar found)", config.getId());
             return baseCommand;
@@ -175,6 +178,7 @@ public class ClasspathExtensibleLspServer extends LspServer {
      * Merge additional document selectors from extensions into the server config.
      */
     private void mergeDocumentSelector(JsonArray extensionSelectors) {
+        var config = super.getConfig();
         List<DocumentSelector> currentSelectors = config.getDocumentSelector();
 
         extensionSelectors.forEach(el -> {
