@@ -28,6 +28,9 @@ public abstract class ServerConfigBase implements ServerConfig {
     // Lazy-loaded installer instance
     private ServerInstaller installer;
 
+    // Install progress indicator (set when installation starts)
+    private com.redhat.mcp.languagetools.installer.TraceProgressIndicator installProgress;
+
     // Common getters
 
     @Override
@@ -107,5 +110,19 @@ public abstract class ServerConfigBase implements ServerConfig {
 
     public void setDocumentSelector(List<DocumentSelector> documentSelector) {
         this.documentSelector = documentSelector;
+    }
+
+    /**
+     * Gets the install progress indicator (used to show visual progress bar in UI).
+     */
+    public com.redhat.mcp.languagetools.installer.TraceProgressIndicator getInstallProgress() {
+        return installProgress;
+    }
+
+    /**
+     * Sets the install progress indicator (called when installation starts).
+     */
+    public void setInstallProgress(com.redhat.mcp.languagetools.installer.TraceProgressIndicator installProgress) {
+        this.installProgress = installProgress;
     }
 }

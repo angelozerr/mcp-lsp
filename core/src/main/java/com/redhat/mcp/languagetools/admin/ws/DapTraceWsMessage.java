@@ -13,6 +13,7 @@ public record DapTraceWsMessage(
     String sessionName,
     String timestamp,
     String direction,
-    String jsonContent
+    String jsonContent,
+    String messageType  // "TRACE", "UPDATE", "ERROR", "INFO" - null = TRACE
 ) {
 }

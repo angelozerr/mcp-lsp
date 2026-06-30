@@ -252,60 +252,68 @@ public class Workspace {
 
         LspServer oldServer = lspServers.get(serverId);
 
-        // Step 1: Install server if needed
-        return ensureServerInstalled(info.config)
-                .thenCompose(installResult -> {
-                    // Shutdown old server if it exists
-                    if (oldServer != null && oldServer.getStatus() != ServerStatus.STOPPED) {
-                        return oldServer.shutdown().thenApply(v -> installResult);
-                    }
-                    return CompletableFuture.completedFuture(installResult);
-                })
-                .thenCompose(installResult -> {
-                    // Step 2: Update config with installed command if installer provided one
-                    if (installResult != null && installResult.getCommand() != null) {
-                        info.config.setCommand(installResult.getCommand());
-                    }
+        // Shutdown old server if it exists
+        CompletableFuture<Void> shutdownFuture;
+        if (oldServer != null && oldServer.getStatus() != ServerStatus.STOPPED) {
+            shutdownFuture = oldServer.shutdown();
+        } else {
+            shutdownFuture = CompletableFuture.completedFuture(null);
+        }
 
-                    // Use installDir from result, or fallback to original serverHome
-                    Path serverHome = installResult != null && installResult.getInstallDir() != null
-                            ? installResult.getInstallDir()
-                            : info.serverHome;
+        return shutdownFuture.thenCompose(v -> {
+            // Create new server instance BEFORE installation so we can set INSTALLING status
+            LspServerContext newContext = LspServerFactoryRegistry.createContext(
+                    pathManager, allServerConfigs, rootUri, workspaceDataDir, info.serverHome, traceCollector);
+            LspServer newServer = LspServerFactoryRegistry.createServer(info.config, newContext);
+            newServer.setWorkspaceConfiguration(configuration);
 
-                    // Update serverHome in info
-                    serverInfos.put(serverId, new ServerInfo(info.config, serverHome));
+            // Set status to INSTALLING if installer exists (BEFORE adding to lspServers map)
+            if (info.config.getInstaller() != null) {
+                newServer.setStatus(ServerStatus.INSTALLING);
+            }
 
-                    // Step 3: Create new server instance
-                    LspServerContext newContext = LspServerFactoryRegistry.createContext(
-                            pathManager, allServerConfigs, rootUri, workspaceDataDir, serverHome, traceCollector);
-                    LspServer newServer = LspServerFactoryRegistry.createServer(info.config, newContext);
-                    newServer.setWorkspaceConfiguration(configuration);
+            // Register status change callback
+            newServer.setStatusChangeCallback(newStatus -> {
+                if (statusChangeCallback != null) {
+                    statusChangeCallback.accept(new LspServerStatusChangeEvent(
+                            rootUri,
+                            info.config.getId(),
+                            newServer.getStatus(),
+                            newStatus
+                    ));
+                }
+            });
 
-                    // Register status change callback
-                    newServer.setStatusChangeCallback(newStatus -> {
-                        if (statusChangeCallback != null) {
-                            statusChangeCallback.accept(new LspServerStatusChangeEvent(
-                                    rootUri,
-                                    info.config.getId(),
-                                    newServer.getStatus(),
-                                    newStatus
-                            ));
+            lspServers.put(serverId, newServer);
+
+            // Step 1: Install server if needed
+            return ensureServerInstalled(info.config)
+                    .thenCompose(installResult -> {
+                        // Step 2: Update config with installed command if installer provided one
+                        if (installResult != null && installResult.getCommand() != null) {
+                            info.config.setCommand(installResult.getCommand());
                         }
+
+                        // Use installDir from result, or fallback to original serverHome
+                        Path serverHome = installResult != null && installResult.getInstallDir() != null
+                                ? installResult.getInstallDir()
+                                : info.serverHome;
+
+                        // Update serverHome in info
+                        serverInfos.put(serverId, new ServerInfo(info.config, serverHome));
+
+                        // Step 3: Start and initialize
+                        return newServer.startManagedOnly()
+                                .thenCompose(initV -> newServer.initialize())
+                                .thenRun(() -> {
+                                    LOG.infof("Started MCP-managed LSP server '%s' for workspace: %s", serverId, rootUri);
+                                });
+                    })
+                    .exceptionally(ex -> {
+                        LOG.errorf(ex, "Failed to start MCP-managed LSP server '%s'", serverId);
+                        throw new RuntimeException("Failed to start managed server: " + ex.getMessage(), ex);
                     });
-
-                    lspServers.put(serverId, newServer);
-
-                    // Step 4: Start and initialize
-                    return newServer.startManagedOnly()
-                            .thenCompose(v -> newServer.initialize())
-                            .thenRun(() -> {
-                                LOG.infof("Started MCP-managed LSP server '%s' for workspace: %s", serverId, rootUri);
-                            });
-                })
-                .exceptionally(ex -> {
-                    LOG.errorf(ex, "Failed to start MCP-managed LSP server '%s'", serverId);
-                    throw new RuntimeException("Failed to start managed server: " + ex.getMessage(), ex);
-                });
+        });
     }
 
     /**
@@ -324,8 +332,16 @@ public class Workspace {
         Path installDir = pathManager.getLspServerHome(config.getId());
         com.redhat.mcp.languagetools.installer.TraceProgressIndicator progress =
                 new com.redhat.mcp.languagetools.installer.TraceProgressIndicator(config.getTraceCollector());
+
+        // Store progress indicator in config so UI can access it
+        config.setInstallProgress(progress);
+
         com.redhat.mcp.languagetools.installer.InstallerContext context =
                 new com.redhat.mcp.languagetools.installer.InstallerContext(config, installDir, progress);
+
+        // Add workspace-specific variables
+        context.setVariable("USER_HOME", pathManager.getMcpLangToolsRoot().toString());
+        context.setVariable("PROJECT_DIR", rootUri.getPath());
 
         // Run installation
         return installer.ensureInstalled(context);

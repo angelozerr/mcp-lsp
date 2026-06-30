@@ -454,7 +454,20 @@ function handleMcpTrace(trace) {
     if (!mcpTracesByClient[connectionId]) {
         mcpTracesByClient[connectionId] = [];
     }
-    mcpTracesByClient[connectionId].push(trace);
+
+    // Check if this is an UPDATE message (replaces previous line)
+    if (trace.messageType === 'UPDATE') {
+        const traces = mcpTracesByClient[connectionId];
+        const lastTrace = traces[traces.length - 1];
+        // Replace last trace if it was also an UPDATE
+        if (lastTrace && lastTrace.messageType === 'UPDATE') {
+            traces[traces.length - 1] = trace;
+        } else {
+            traces.push(trace);
+        }
+    } else {
+        mcpTracesByClient[connectionId].push(trace);
+    }
 
     // Re-render console if this trace is for the currently selected client
     if (selectedMcpClient === connectionId) {

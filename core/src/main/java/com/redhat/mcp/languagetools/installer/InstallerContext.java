@@ -30,6 +30,9 @@ public class InstallerContext {
         variables.put("SERVER_HOME", installDir.toString());
         variables.put("SERVER_ID", config.getId());
         variables.put("SERVER_NAME", config.getName());
+
+        // USER_HOME and PROJECT_DIR can be set later via setVariable()
+        // They are workspace-specific and should be passed from the workspace/session
     }
 
     public ProgressIndicator getProgress() {

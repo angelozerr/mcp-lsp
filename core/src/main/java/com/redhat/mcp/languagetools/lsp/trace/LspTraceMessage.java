@@ -1,5 +1,7 @@
 package com.redhat.mcp.languagetools.lsp.trace;
 
+import com.redhat.mcp.languagetools.trace.TraceCollector;
+
 import java.time.Instant;
 
 /**
@@ -12,7 +14,8 @@ public record LspTraceMessage(
     String serverName,
     Instant timestamp,
     MessageDirection direction,
-    String jsonContent
+    String jsonContent,
+    TraceCollector.MessageType messageType  // null = TRACE (default)
 ) {
     public enum MessageDirection {
         CLIENT_TO_SERVER,

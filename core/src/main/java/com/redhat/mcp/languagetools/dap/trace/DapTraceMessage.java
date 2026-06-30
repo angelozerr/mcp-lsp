@@ -1,5 +1,6 @@
 package com.redhat.mcp.languagetools.dap.trace;
 
+import com.redhat.mcp.languagetools.trace.TraceCollector;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 
 import java.time.Instant;
@@ -14,7 +15,8 @@ public record DapTraceMessage(
     String sessionName,
     Instant timestamp,
     MessageDirection direction,
-    String jsonContent
+    String jsonContent,
+    TraceCollector.MessageType messageType  // null = TRACE (default)
 ) {
     public enum MessageDirection {
         SENT,

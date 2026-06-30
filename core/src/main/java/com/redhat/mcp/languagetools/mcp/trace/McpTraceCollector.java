@@ -46,6 +46,10 @@ public class McpTraceCollector {
      * Add a new MCP trace with LSP-style formatting.
      */
     public void addTrace(String direction, String connectionId, String message) {
+        addTrace(direction, connectionId, message, null);
+    }
+
+    public void addTrace(String direction, String connectionId, String message, com.redhat.mcp.languagetools.trace.TraceCollector.MessageType messageType) {
         Instant now = Instant.now();
         String formattedMessage = formatMessage(direction, connectionId, message, now);
 
@@ -53,7 +57,8 @@ public class McpTraceCollector {
                 direction,
                 connectionId,
                 formattedMessage,
-                now
+                now,
+                messageType
         );
 
         traces.add(trace);

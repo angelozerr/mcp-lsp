@@ -35,6 +35,7 @@ public class TaskRegistryInstaller implements ServerInstaller {
     @Override
     public CompletableFuture<InstallResult> ensureInstalled(InstallerContext context) {
         return CompletableFuture.supplyAsync(() -> {
+            long startTime = System.currentTimeMillis();
             try {
                 // Parse installer.json
                 ServerInstallerDescriptor descriptor = loadInstallerDescriptor();
@@ -87,7 +88,8 @@ public class TaskRegistryInstaller implements ServerInstaller {
                 status.set(InstallationStatus.INSTALLED);
 
                 if (trace != null) {
-                    trace.info("Installation completed successfully");
+                    long elapsedMs = System.currentTimeMillis() - startTime;
+                    trace.info(String.format("Installation completed successfully in %d ms", elapsedMs));
                 }
 
                 return new InstallResult(context.getInstallDir(), command, InstallationStatus.INSTALLED);

@@ -13,6 +13,7 @@ public record LspTraceWsMessage(
     String serverName,
     String timestamp,
     String direction,
-    String jsonContent
+    String jsonContent,
+    String messageType  // "TRACE", "UPDATE", "ERROR", "INFO" - null = TRACE
 ) {
 }

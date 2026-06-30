@@ -63,6 +63,13 @@
             <version>1.28.0</version>
         </dependency>
 
+        <!-- XZ compression for .tar.xz / .txz archives -->
+        <dependency>
+            <groupId>org.tukaani</groupId>
+            <artifactId>xz</artifactId>
+            <version>1.10</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>io.quarkus</groupId>

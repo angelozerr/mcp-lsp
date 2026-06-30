@@ -135,7 +135,8 @@ public class AdminWebSocketEndpoint {
                             trace.serverName(),
                             trace.timestamp().toString(),
                             trace.direction().name(),
-                            trace.jsonContent()
+                            trace.jsonContent(),
+                            trace.messageType() != null ? trace.messageType().name() : null
                         );
                         sendToSession(session, msg);
                     }
@@ -183,7 +184,8 @@ public class AdminWebSocketEndpoint {
                 trace.serverName(),
                 trace.timestamp().toString(),
                 trace.direction().name(),
-                trace.jsonContent()
+                trace.jsonContent(),
+                trace.messageType() != null ? trace.messageType().name() : null
         );
         broadcast(msg);
     }
@@ -213,7 +215,8 @@ public class AdminWebSocketEndpoint {
                 trace.sessionName(),
                 trace.timestamp().toString(),
                 trace.direction().name(),
-                trace.jsonContent()
+                trace.jsonContent(),
+                trace.messageType() != null ? trace.messageType().name() : null
         );
         broadcast(msg);
     }

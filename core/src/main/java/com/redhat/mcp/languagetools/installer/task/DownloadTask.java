@@ -2,20 +2,16 @@ package com.redhat.mcp.languagetools.installer.task;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.redhat.mcp.languagetools.installer.InstallerContext;
+import com.redhat.mcp.languagetools.installer.ProgressIndicator;
+import com.redhat.mcp.languagetools.installer.download.DecompressorUtils;
+import com.redhat.mcp.languagetools.installer.download.DownloadUtils;
 import com.redhat.mcp.languagetools.trace.TraceCollector;
 import org.jboss.logging.Logger;
 
 import java.io.*;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.zip.GZIPInputStream;
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 
 /**
  * Task that downloads and extracts a file.
@@ -26,12 +22,14 @@ public class DownloadTask implements InstallerTask {
     private final String name;
     private final String url;
     private final String outputDir;
+    private final String outputFileName;  // OS-specific output file name
     private final InstallerTask onSuccessTask;
 
-    public DownloadTask(String name, String url, String outputDir, InstallerTask onSuccessTask) {
+    public DownloadTask(String name, String url, String outputDir, String outputFileName, InstallerTask onSuccessTask) {
         this.name = name;
         this.url = url;
         this.outputDir = outputDir;
+        this.outputFileName = outputFileName;
         this.onSuccessTask = onSuccessTask;
     }
 
@@ -54,81 +52,65 @@ public class DownloadTask implements InstallerTask {
             Path outputPath = Paths.get(resolvedOutputDir);
             Files.createDirectories(outputPath);
 
-            // Download file
-            HttpClient client = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(resolvedUrl))
-                    .build();
-
-            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-
-            // Handle redirects (e.g., Eclipse downloads return 302)
-            if (response.statusCode() == 301 || response.statusCode() == 302 || response.statusCode() == 307 || response.statusCode() == 308) {
-                String redirectUrl = response.headers().firstValue("Location").orElse(null);
-                if (redirectUrl != null) {
-                    if (trace != null) {
-                        trace.info("Following redirect to: " + redirectUrl);
-                    }
-                    HttpRequest redirectRequest = HttpRequest.newBuilder()
-                            .uri(URI.create(redirectUrl))
-                            .build();
-                    response = client.send(redirectRequest, HttpResponse.BodyHandlers.ofInputStream());
-                }
+            // Determine file extension from URL
+            String fileName = resolvedUrl.substring(resolvedUrl.lastIndexOf('/') + 1);
+            if (fileName.contains("?")) {
+                fileName = fileName.substring(0, fileName.indexOf('?'));
             }
+            Path downloadedFile = Files.createTempFile("download-", fileName);
 
-            if (response.statusCode() != 200) {
-                LOG.errorf("Download failed with status %d: %s", response.statusCode(), resolvedUrl);
+            try {
+                // Download file with progress tracking
+                // Note: Don't enable sendProgressUpdates on TraceProgressIndicator because
+                // ProgressIndicatorWrapper already sends its own UPDATE messages with MB/MB display
+                ProgressIndicatorWrapper downloadProgress = new ProgressIndicatorWrapper(context, trace, name);
+
+                // Download (contentLength will be set automatically via ContentLengthAware interface)
+                DownloadUtils.DownloadResult result = DownloadUtils.download(resolvedUrl, downloadedFile, downloadProgress);
+
+                context.getProgress().setText("Extracting " + name);
+                context.getProgress().setFraction(0.7);
+
                 if (trace != null) {
-                    trace.error("Download failed with status " + response.statusCode());
+                    trace.info("Extracting to: " + resolvedOutputDir);
                 }
-                return false;
-            }
 
-            context.getProgress().setText("Extracting " + name);
-            context.getProgress().setFraction(0.5);
-
-            // Extract tar.gz
-            try (InputStream inputStream = response.body();
-                 GZIPInputStream gzipInputStream = new GZIPInputStream(inputStream);
-                 TarArchiveInputStream tarInputStream = new TarArchiveInputStream(gzipInputStream)) {
-
-                TarArchiveEntry entry;
-                while ((entry = tarInputStream.getNextTarEntry()) != null) {
-                    context.checkCanceled();
-
-                    Path entryPath = outputPath.resolve(entry.getName());
-
-                    if (entry.isDirectory()) {
-                        Files.createDirectories(entryPath);
-                    } else {
-                        Files.createDirectories(entryPath.getParent());
-                        try (OutputStream out = Files.newOutputStream(entryPath)) {
-                            tarInputStream.transferTo(out);
-                        }
-
-                        // Preserve executable permissions
-                        if ((entry.getMode() & 0100) != 0) {
-                            entryPath.toFile().setExecutable(true);
-                        }
+                // Decompress based on file extension
+                DecompressorUtils.Decompressor decompressor = DecompressorUtils.getDecompressor(downloadedFile);
+                if (decompressor == null) {
+                    LOG.errorf("Unsupported archive format: %s", fileName);
+                    if (trace != null) {
+                        trace.error("Unsupported archive format: " + fileName);
                     }
+                    return false;
                 }
+
+                Path rootDir = decompressor.decompress(downloadedFile, outputPath);
+
+                context.getProgress().setFraction(1.0);
+
+                // Store output dir and file name in context for onSuccess tasks
+                context.setVariable("output.dir", resolvedOutputDir);
+                if (outputFileName != null) {
+                    String resolvedFileName = context.resolveVariables(outputFileName);
+                    context.setVariable("output.file.name", resolvedFileName);
+                }
+
+                if (trace != null) {
+                    trace.info("Downloaded and extracted to: " + resolvedOutputDir);
+                }
+
+                // Execute onSuccess task
+                if (onSuccessTask != null) {
+                    return onSuccessTask.execute(context);
+                }
+
+                return true;
+
+            } finally {
+                // Clean up temp file
+                Files.deleteIfExists(downloadedFile);
             }
-
-            context.getProgress().setFraction(1.0);
-
-            // Store output dir in context for onSuccess tasks
-            context.setVariable("output.dir", resolvedOutputDir);
-
-            if (trace != null) {
-                trace.info("Downloaded and extracted to: " + resolvedOutputDir);
-            }
-
-            // Execute onSuccess task
-            if (onSuccessTask != null) {
-                return onSuccessTask.execute(context);
-            }
-
-            return true;
 
         } catch (Exception e) {
             LOG.errorf(e, "Download failed: %s", resolvedUrl);
@@ -175,7 +157,30 @@ public class DownloadTask implements InstallerTask {
         public InstallerTask createTask(JsonNode config) {
             String name = config.has("name") ? config.get("name").asText() : "Download";
             String url = config.get("url").asText();
-            String outputDir = config.get("output").get("dir").asText();
+            JsonNode output = config.get("output");
+            String outputDir = output.get("dir").asText();
+
+            // Parse output.file.name (can be a simple string or OS-specific map)
+            String outputFileName = null;
+            if (output.has("file") && output.get("file").has("name")) {
+                JsonNode fileNameNode = output.get("file").get("name");
+                if (fileNameNode.isTextual()) {
+                    // Simple string: "bin/jdtls"
+                    outputFileName = fileNameNode.asText();
+                } else if (fileNameNode.isObject()) {
+                    // OS-specific map: {"windows": "bin/jdtls.bat", "default": "bin/jdtls"}
+                    String os = System.getProperty("os.name").toLowerCase();
+                    if (os.contains("win") && fileNameNode.has("windows")) {
+                        outputFileName = fileNameNode.get("windows").asText();
+                    } else if (os.contains("mac") && fileNameNode.has("mac")) {
+                        outputFileName = fileNameNode.get("mac").asText();
+                    } else if (os.contains("nix") || os.contains("nux") && fileNameNode.has("linux")) {
+                        outputFileName = fileNameNode.get("linux").asText();
+                    } else if (fileNameNode.has("default")) {
+                        outputFileName = fileNameNode.get("default").asText();
+                    }
+                }
+            }
 
             // Parse onSuccess tasks
             InstallerTask onSuccessTask = null;
@@ -184,7 +189,7 @@ public class DownloadTask implements InstallerTask {
                 onSuccessTask = parseTaskNode(onSuccess);
             }
 
-            return new DownloadTask(name, url, outputDir, onSuccessTask);
+            return new DownloadTask(name, url, outputDir, outputFileName, onSuccessTask);
         }
 
         private InstallerTask parseTaskNode(JsonNode taskNode) {
@@ -198,6 +203,61 @@ public class DownloadTask implements InstallerTask {
             JsonNode taskConfig = taskNode.get(taskType);
 
             return getRegistry().createTask(taskType, taskConfig);
+        }
+    }
+
+    /**
+     * Wrapper for ProgressIndicator that tracks download progress with TraceCollector.
+     */
+    private static class ProgressIndicatorWrapper implements ProgressIndicator, com.redhat.mcp.languagetools.installer.download.ContentLengthAware {
+        private final InstallerContext context;
+        private final TraceCollector trace;
+        private final String name;
+        private long contentLength = -1;
+
+        public ProgressIndicatorWrapper(InstallerContext context, TraceCollector trace, String name) {
+            this.context = context;
+            this.trace = trace;
+            this.name = name;
+        }
+
+        public void setContentLength(long contentLength) {
+            this.contentLength = contentLength;
+        }
+
+        @Override
+        public void setText(String text) {
+            context.getProgress().setText(text);
+        }
+
+        @Override
+        public void setText2(String text) {
+            context.getProgress().setText2(text);
+        }
+
+        @Override
+        public void setFraction(double fraction) {
+            // Scale to 70% (download takes 70%, extract takes 30%)
+            context.getProgress().setFraction(fraction * 0.7);
+
+            // Update trace with MB/MB and %
+            if (trace != null && contentLength > 0) {
+                long downloaded = (long) (fraction * contentLength);
+                String downloadedMB = String.format("%.1f", downloaded / 1024.0 / 1024.0);
+                String totalMB = String.format("%.1f", contentLength / 1024.0 / 1024.0);
+                trace.update(String.format("Downloading %s: %s MB / %s MB (%.0f%%)",
+                        name, downloadedMB, totalMB, fraction * 100));
+            }
+        }
+
+        @Override
+        public boolean isCanceled() {
+            return context.getProgress().isCanceled();
+        }
+
+        @Override
+        public void checkCanceled() {
+            context.checkCanceled();
         }
     }
 }

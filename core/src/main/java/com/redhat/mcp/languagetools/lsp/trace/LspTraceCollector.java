@@ -27,13 +27,18 @@ public class LspTraceCollector {
     Event<LspTraceMessage> traceEvent;
 
     public void addTrace(String workspaceUri, String serverId, String serverName, LspTraceMessage.MessageDirection direction, String jsonContent) {
+        addTrace(workspaceUri, serverId, serverName, direction, jsonContent, null);
+    }
+
+    public void addTrace(String workspaceUri, String serverId, String serverName, LspTraceMessage.MessageDirection direction, String jsonContent, com.redhat.mcp.languagetools.trace.TraceCollector.MessageType messageType) {
         LspTraceMessage message = new LspTraceMessage(
             workspaceUri,
             serverId,
             serverName,
             Instant.now(),
             direction,
-            jsonContent
+            jsonContent,
+            messageType
         );
 
         traces.addLast(message);

@@ -225,7 +225,20 @@
             if (!tracesByServer[trace.serverId]) {
                 tracesByServer[trace.serverId] = [];
             }
-            tracesByServer[trace.serverId].push(trace);
+
+            // Check if this is an UPDATE message (replaces previous line)
+            if (trace.messageType === 'UPDATE') {
+                const traces = tracesByServer[trace.serverId];
+                const lastTrace = traces[traces.length - 1];
+                // Replace last trace if it was also an UPDATE or if it exists
+                if (lastTrace && lastTrace.messageType === 'UPDATE') {
+                    traces[traces.length - 1] = trace;
+                } else {
+                    traces.push(trace);
+                }
+            } else {
+                tracesByServer[trace.serverId].push(trace);
+            }
 
             console.log('Stored trace, total for', trace.serverId, ':', tracesByServer[trace.serverId].length);
 
@@ -255,20 +268,15 @@
                 window.dapTracesBySession[trace.sessionId] = [];
             }
 
-            // Check if this is a progress update (replaces previous line)
-            const isProgress = trace.jsonContent && trace.jsonContent.startsWith('[PROGRESS]');
-
-            if (isProgress) {
-                // Remove [PROGRESS] prefix from display
-                trace.jsonContent = trace.jsonContent.substring(10); // Remove "[PROGRESS]"
-
-                // Replace last trace if it was also a progress message
+            // Check if this is an UPDATE message (replaces previous line)
+            if (trace.messageType === 'UPDATE') {
                 const traces = window.dapTracesBySession[trace.sessionId];
                 const lastTrace = traces[traces.length - 1];
-                if (lastTrace && lastTrace.isProgress) {
-                    traces[traces.length - 1] = { ...trace, isProgress: true };
+                // Replace last trace if it was also an UPDATE
+                if (lastTrace && lastTrace.messageType === 'UPDATE') {
+                    traces[traces.length - 1] = trace;
                 } else {
-                    traces.push({ ...trace, isProgress: true });
+                    traces.push(trace);
                 }
             } else {
                 window.dapTracesBySession[trace.sessionId].push(trace);
@@ -297,7 +305,20 @@
             if (!mcpTracesByClient[connectionId]) {
                 mcpTracesByClient[connectionId] = [];
             }
-            mcpTracesByClient[connectionId].push(trace);
+
+            // Check if this is an UPDATE message (replaces previous line)
+            if (trace.messageType === 'UPDATE') {
+                const traces = mcpTracesByClient[connectionId];
+                const lastTrace = traces[traces.length - 1];
+                // Replace last trace if it was also an UPDATE
+                if (lastTrace && lastTrace.messageType === 'UPDATE') {
+                    traces[traces.length - 1] = trace;
+                } else {
+                    traces.push(trace);
+                }
+            } else {
+                mcpTracesByClient[connectionId].push(trace);
+            }
 
             // Keep only last 500 traces per client
             if (mcpTracesByClient[connectionId].length > 500) {

@@ -55,7 +55,7 @@ public abstract class ServerBase<T extends ServerConfigBase> {
     /**
      * Update server status and notify callback if registered.
      */
-   protected  void setStatus(ServerStatus newStatus) {
+    public void setStatus(ServerStatus newStatus) {
         ServerStatus oldStatus = this.status;
         this.status = newStatus;
 

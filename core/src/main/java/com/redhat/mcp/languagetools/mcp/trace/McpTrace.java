@@ -1,5 +1,7 @@
 package com.redhat.mcp.languagetools.mcp.trace;
 
+import com.redhat.mcp.languagetools.trace.TraceCollector;
+
 import java.time.Instant;
 
 /**
@@ -9,6 +11,7 @@ public record McpTrace(
         String direction,      // "Received" or "Sent"
         String connectionId,   // MCP connection ID
         String message,        // JSON message
-        Instant timestamp
+        Instant timestamp,
+        TraceCollector.MessageType messageType  // null = TRACE (default)
 ) {
 }
