@@ -26,8 +26,8 @@ public class ClasspathExtensibleLspServer extends LspServer {
 
     private static final Logger LOG = Logger.getLogger(ClasspathExtensibleLspServer.class);
 
-    public ClasspathExtensibleLspServer(LspServerConfig config, LspServerContext context) {
-        super(config, context);
+    public ClasspathExtensibleLspServer(LspServerConfig config, LspServerContext context, com.redhat.mcp.languagetools.workspace.Workspace workspace) {
+        super(config, context, workspace);
     }
 
     /**

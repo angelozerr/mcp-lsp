@@ -16,7 +16,7 @@ public class JdtLsServerFactory implements LspServerFactory {
     }
 
     @Override
-    public LspServer createServer(LspServerConfig config, LspServerContext context) {
-        return new JdtLsServer(config, context);
+    public LspServer createServer(LspServerConfig config, LspServerContext context, com.redhat.mcp.languagetools.workspace.Workspace workspace) {
+        return new JdtLsServer(config, context, workspace);
     }
 }

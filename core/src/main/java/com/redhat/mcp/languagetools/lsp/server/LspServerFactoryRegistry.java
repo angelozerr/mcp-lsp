@@ -2,6 +2,7 @@ package com.redhat.mcp.languagetools.lsp.server;
 
 import com.redhat.mcp.languagetools.PathManager;
 import com.redhat.mcp.languagetools.lsp.trace.LspTraceCollector;
+import com.redhat.mcp.languagetools.workspace.Workspace;
 import org.jboss.logging.Logger;
 
 import java.net.URI;
@@ -31,16 +32,19 @@ public class LspServerFactoryRegistry {
         private final Path workspaceDataDir;
         private final Path serverHome;
         private final LspTraceCollector traceCollector;
+        private com.redhat.mcp.languagetools.workspace.Workspace workspace;
 
         LspServerContextImpl(PathManager pathManager, List<LspServerConfig> allServerConfigs,
                              URI workspaceRoot, Path workspaceDataDir, Path serverHome,
-                             LspTraceCollector traceCollector) {
+                             LspTraceCollector traceCollector,
+                             com.redhat.mcp.languagetools.workspace.Workspace workspace) {
             this.pathManager = pathManager;
             this.allServerConfigs = allServerConfigs;
             this.workspaceRoot = workspaceRoot;
             this.workspaceDataDir = workspaceDataDir;
             this.serverHome = serverHome;
             this.traceCollector = traceCollector;
+            this.workspace = workspace;
 
             // Create ApplicationContext wrapper
             this.applicationContext = new com.redhat.mcp.languagetools.ApplicationContext() {
@@ -86,6 +90,11 @@ public class LspServerFactoryRegistry {
             return traceCollector;
         }
 
+        @Override
+        public LspServer findLspServerById(String serverId) {
+            return workspace != null ? workspace.getLspServer(serverId) : null;
+        }
+
     }
 
     static {
@@ -99,12 +108,13 @@ public class LspServerFactoryRegistry {
 
     /**
      * Create a LspServerContext instance.
-     * This is used internally by WorkspaceManager to create the context.
+     * This is used internally by Workspace to create the context.
      */
     public static LspServerContext createContext(PathManager pathManager, List<LspServerConfig> allServerConfigs,
                                                   URI workspaceRoot, Path workspaceDataDir, Path serverHome,
-                                                  LspTraceCollector traceCollector) {
-        return new LspServerContextImpl(pathManager, allServerConfigs, workspaceRoot, workspaceDataDir, serverHome, traceCollector);
+                                                  LspTraceCollector traceCollector,
+                                                  Workspace workspace) {
+        return new LspServerContextImpl(pathManager, allServerConfigs, workspaceRoot, workspaceDataDir, serverHome, traceCollector, workspace);
     }
 
     /**
@@ -116,17 +126,17 @@ public class LspServerFactoryRegistry {
      * ClasspathExtensibleLspServer automatically detects and applies jarExtensions contributions.
      * If no extensions exist, it behaves exactly like the base LspServer.
      */
-    public static LspServer createServer(LspServerConfig config, LspServerContext context) {
+    public static LspServer createServer(LspServerConfig config, LspServerContext context, com.redhat.mcp.languagetools.workspace.Workspace workspace) {
 
         // Check for custom factory (highest priority)
         LspServerFactory factory = factories.get(config.getId());
         if (factory != null) {
             LOG.infof("Creating custom LSP server for %s (workspace: %s)", config.getId(), context.getWorkspaceRoot());
-            return factory.createServer(config, context);
+            return factory.createServer(config, context, workspace);
         }
 
         // Default: use classpath-extensible server (supports jarExtensions contributions)
         LOG.debugf("Creating classpath-extensible LSP server for %s", config.getId());
-        return new ClasspathExtensibleLspServer(config, context);
+        return new ClasspathExtensibleLspServer(config, context, workspace);
     }
 }

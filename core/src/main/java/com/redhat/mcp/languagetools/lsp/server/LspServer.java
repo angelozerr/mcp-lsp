@@ -63,14 +63,16 @@ public class LspServer extends ServerBase<LspServerConfig> {
     protected LspContributionManager extensionManager;
     protected RequestRouter requestRouter;
     private final LspClientFeatures clientFeatures;
+    private com.redhat.mcp.languagetools.workspace.Workspace workspace;
 
     public RequestRouter getRequestRouter() {
         return requestRouter;
     }
 
-    public LspServer(LspServerConfig config, LspServerContext context) {
+    public LspServer(LspServerConfig config, LspServerContext context, com.redhat.mcp.languagetools.workspace.Workspace workspace) {
         super(config);
         this.context = context;
+        this.workspace = workspace;
         this.workspaceRoot = context.getWorkspaceRoot();
         this.workspaceDataDir = context.getWorkspaceDataDir();
         this.serverHome = context.getLspServerHome();
@@ -80,6 +82,44 @@ public class LspServer extends ServerBase<LspServerConfig> {
 
         // Create client features for managing capabilities
         this.clientFeatures = new LspClientFeatures(config);
+
+        // Create RequestRouter for bindRequest routing
+        this.requestRouter = createRequestRouter();
+        LOG.infof("[%s] RequestRouter created in constructor", config.getId());
+    }
+
+    /**
+     * Create request router using the workspace to find servers.
+     */
+    private RequestRouter createRequestRouter() {
+        return (targetServerId, method, params, mode) -> {
+            // Look up the target server via workspace
+            LspServer targetServer = workspace.getLspServer(targetServerId);
+
+            if (targetServer == null) {
+                LOG.warnf("Target server '%s' not found for bindRequest: %s", targetServerId, method);
+                return CompletableFuture.failedFuture(
+                        new IllegalStateException("Target server not found: " + targetServerId)
+                );
+            }
+
+            // Wait for target server to be ready before routing (important for JDT.LS)
+            LOG.debugf("Routing request %s to server %s (mode: %s), waiting for server to be ready...",
+                    method, targetServerId, mode);
+
+            return targetServer.waitUntilReady(30000) // 30 seconds timeout
+                    .thenCompose(v -> {
+                        LOG.debugf("Server %s is ready, routing request %s", targetServerId, method);
+
+                        if ("direct".equals(mode)) {
+                            // Direct JSON-RPC request
+                            return targetServer.sendRequest(method, params);
+                        } else {
+                            // Default: workspace/executeCommand (for JDT.LS delegate handlers)
+                            return targetServer.sendCommandRequest(method, params);
+                        }
+                    });
+        };
     }
 
     public LspServerContext getContext() {

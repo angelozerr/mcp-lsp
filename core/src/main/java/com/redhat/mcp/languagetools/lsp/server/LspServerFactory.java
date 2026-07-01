@@ -16,6 +16,7 @@ public interface LspServerFactory {
      *
      * @param config This server's configuration
      * @param context Server creation context with all dependencies
+     * @param workspace The workspace this server belongs to
      */
-    LspServer createServer(LspServerConfig config, LspServerContext context);
+    LspServer createServer(LspServerConfig config, LspServerContext context, com.redhat.mcp.languagetools.workspace.Workspace workspace);
 }

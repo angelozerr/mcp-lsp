@@ -41,4 +41,13 @@ public interface LspServerContext extends WorkspaceContext {
      * Get the trace collector for LSP messages.
      */
     LspTraceCollector getTraceCollector();
+
+    /**
+     * Find an LSP server in the workspace by ID.
+     * Used for bindRequest routing between servers.
+     *
+     * @param serverId The server ID to find
+     * @return The LSP server, or null if not found
+     */
+    LspServer findLspServerById(String serverId);
 }

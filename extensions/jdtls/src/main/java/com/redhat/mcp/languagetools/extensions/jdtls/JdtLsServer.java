@@ -34,8 +34,8 @@ public class JdtLsServer extends LspServer {
 
     private JdtLsLanguageClient jdtClient;
 
-    public JdtLsServer(LspServerConfig config, LspServerContext context) {
-        super(config, context);
+    public JdtLsServer(LspServerConfig config, LspServerContext context, com.redhat.mcp.languagetools.workspace.Workspace workspace) {
+        super(config, context, workspace);
     }
 
     /**

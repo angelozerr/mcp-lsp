@@ -148,16 +148,13 @@ public class Workspace {
 
         LspServerContext context =
                 LspServerFactoryRegistry.createContext(
-                        pathManager, allServerConfigs, rootUri, workspaceDataDir, serverHome, traceCollector);
+                        pathManager, allServerConfigs, rootUri, workspaceDataDir, serverHome, traceCollector, this);
 
-        LspServer server = LspServerFactoryRegistry.createServer(config, context);
+        LspServer server = LspServerFactoryRegistry.createServer(config, context, this);
         server.setWorkspaceConfiguration(configuration);
         if (extensionManager != null) {
             server.setLspContributionManager(extensionManager);
         }
-
-        // Set up request router for bindRequest support
-        server.setRequestRouter(createRequestRouter());
 
         // Register status change callback
         registerServerStatusCallback(server, config.getId());
@@ -167,39 +164,6 @@ public class Workspace {
         LOG.infof("Added LSP server '%s' to workspace: %s", config.getId(), rootUri);
     }
 
-    /**
-     * Create a request router that routes bindRequest calls between servers.
-     */
-    private RequestRouter createRequestRouter() {
-        return (targetServerId, method, params, mode) -> {
-            // Look up the target server
-            LspServer targetServer = lspServers.get(targetServerId);
-
-            if (targetServer == null) {
-                LOG.warnf("Target server '%s' not found for bindRequest: %s", targetServerId, method);
-                return CompletableFuture.failedFuture(
-                        new IllegalStateException("Target server not found: " + targetServerId)
-                );
-            }
-
-            // Wait for target server to be ready before routing (important for JDT.LS)
-            LOG.debugf("Routing request %s to server %s (mode: %s), waiting for server to be ready...",
-                    method, targetServerId, mode);
-
-            return targetServer.waitUntilReady(30000) // 30 seconds timeout
-                    .thenCompose(v -> {
-                        LOG.debugf("Server %s is ready, routing request %s", targetServerId, method);
-
-                        if ("direct".equals(mode)) {
-                            // Direct JSON-RPC request
-                            return targetServer.sendRequest(method, params);
-                        } else {
-                            // Default: workspace/executeCommand (for JDT.LS delegate handlers)
-                            return targetServer.sendCommandRequest(method, params);
-                        }
-                    });
-        };
-    }
 
     /**
      * Restart a specific LSP server (shutdown old, create new, start).
@@ -222,8 +186,8 @@ public class Workspace {
 
                 // Create new server instance using factory
                 LspServerContext newContext = LspServerFactoryRegistry.createContext(
-                        pathManager, allServerConfigs, rootUri, workspaceDataDir, info.serverHome, traceCollector);
-                LspServer newServer = LspServerFactoryRegistry.createServer(info.config, newContext);
+                        pathManager, allServerConfigs, rootUri, workspaceDataDir, info.serverHome, traceCollector, this);
+                LspServer newServer = LspServerFactoryRegistry.createServer(info.config, newContext, this);
                 newServer.setWorkspaceConfiguration(configuration);
 
                 // Register status change callback
@@ -268,8 +232,8 @@ public class Workspace {
         return shutdownFuture.thenCompose(v -> {
             // Create new server instance BEFORE installation so we can set INSTALLING status
             LspServerContext newContext = LspServerFactoryRegistry.createContext(
-                    pathManager, allServerConfigs, rootUri, workspaceDataDir, info.serverHome, traceCollector);
-            LspServer newServer = LspServerFactoryRegistry.createServer(info.config, newContext);
+                    pathManager, allServerConfigs, rootUri, workspaceDataDir, info.serverHome, traceCollector, this);
+            LspServer newServer = LspServerFactoryRegistry.createServer(info.config, newContext, this);
             newServer.setWorkspaceConfiguration(configuration);
 
             // Set status to INSTALLING if installer exists (BEFORE adding to lspServers map)
