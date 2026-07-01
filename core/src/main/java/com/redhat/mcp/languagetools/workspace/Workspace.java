@@ -316,6 +316,16 @@ public class Workspace {
                     })
                     .exceptionally(ex -> {
                         LOG.errorf(ex, "Failed to start MCP-managed LSP server '%s'", serverId);
+
+                        // Update server status based on the type of failure
+                        Throwable cause = ex.getCause();
+                        if (cause instanceof com.redhat.mcp.languagetools.installer.InstallationException
+                                || ex instanceof com.redhat.mcp.languagetools.installer.InstallationException) {
+                            newServer.setStatus(ServerStatus.INSTALL_FAILED);
+                        } else {
+                            newServer.setStatus(ServerStatus.START_FAILED);
+                        }
+
                         throw new RuntimeException("Failed to start managed server: " + ex.getMessage(), ex);
                     });
         });

@@ -68,24 +68,41 @@ public class DownloadTask implements InstallerTask {
                 // Download (contentLength will be set automatically via ContentLengthAware interface)
                 DownloadUtils.DownloadResult result = DownloadUtils.download(resolvedUrl, downloadedFile, downloadProgress);
 
-                context.getProgress().setText("Extracting " + name);
-                context.getProgress().setFraction(0.7);
-
-                if (trace != null) {
-                    trace.info("Extracting to: " + resolvedOutputDir);
-                }
-
-                // Decompress based on file extension
+                // Decompress based on file extension, or simply copy if not an archive
                 DecompressorUtils.Decompressor decompressor = DecompressorUtils.getDecompressor(downloadedFile);
-                if (decompressor == null) {
-                    LOG.errorf("Unsupported archive format: %s", fileName);
-                    if (trace != null) {
-                        trace.error("Unsupported archive format: " + fileName);
-                    }
-                    return false;
-                }
+                if (decompressor != null) {
+                    // Archive file - extract it
+                    context.getProgress().setText("Extracting " + name);
+                    context.getProgress().setFraction(0.7);
 
-                Path rootDir = decompressor.decompress(downloadedFile, outputPath);
+                    if (trace != null) {
+                        trace.info("Extracting to: " + resolvedOutputDir);
+                    }
+
+                    Path rootDir = decompressor.decompress(downloadedFile, outputPath);
+                } else {
+                    // Not an archive - copy the file directly
+                    context.getProgress().setText("Installing " + name);
+                    context.getProgress().setFraction(0.7);
+
+                    if (trace != null) {
+                        trace.info("Copying file to: " + resolvedOutputDir);
+                    }
+
+                    // Determine the target file name
+                    String targetFileName = outputFileName != null ? context.resolveVariables(outputFileName) : fileName;
+                    Path targetFile = outputPath.resolve(targetFileName);
+
+                    // Ensure parent directory exists
+                    Files.createDirectories(targetFile.getParent());
+
+                    // Copy the downloaded file
+                    Files.copy(downloadedFile, targetFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+                    if (trace != null) {
+                        trace.info("File copied to: " + targetFile);
+                    }
+                }
 
                 context.getProgress().setFraction(1.0);
 

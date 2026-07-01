@@ -1,10 +1,17 @@
 package com.redhat.mcp.languagetools.dap.session;
 
 import com.redhat.mcp.languagetools.ApplicationContext;
+import com.redhat.mcp.languagetools.PathManager;
 import com.redhat.mcp.languagetools.WorkspaceContext;
 import com.redhat.mcp.languagetools.dap.client.DapEventListener;
 import com.redhat.mcp.languagetools.dap.server.DapServer;
 import com.redhat.mcp.languagetools.dap.server.DapServerConfig;
+import com.redhat.mcp.languagetools.dap.server.DapServerContext;
+import com.redhat.mcp.languagetools.dap.trace.DapTraceCollector;
+import com.redhat.mcp.languagetools.dap.trace.DapTraceMessage;
+import com.redhat.mcp.languagetools.installer.InstallerContext;
+import com.redhat.mcp.languagetools.installer.ServerInstaller;
+import com.redhat.mcp.languagetools.installer.TraceProgressIndicator;
 import org.eclipse.lsp4j.debug.*;
 import org.eclipse.lsp4j.debug.Thread;
 import org.eclipse.lsp4j.debug.services.IDebugProtocolServer;
@@ -78,7 +85,7 @@ public class DapSession implements DapEventListener {
                       DapServerConfig serverConfig,
                       ApplicationContext appContext,
                       WorkspaceContext workspaceContext,
-                      com.redhat.mcp.languagetools.dap.trace.DapTraceCollector traceCollector) {
+                      DapTraceCollector traceCollector) {
         this.sessionId = sessionId;
         this.language = language;
         this.sessionName = sessionName;
@@ -91,24 +98,24 @@ public class DapSession implements DapEventListener {
         Path serverHome = appContext.getPathManager().getDapServerHome(serverConfig.getId());
 
         // Create DAP server context
-        com.redhat.mcp.languagetools.dap.server.DapServerContext dapContext = new com.redhat.mcp.languagetools.dap.server.DapServerContext() {
+        DapServerContext dapContext = new DapServerContext() {
             @Override
-            public com.redhat.mcp.languagetools.ApplicationContext getApplicationContext() {
+            public ApplicationContext getApplicationContext() {
                 return appContext;
             }
 
             @Override
-            public com.redhat.mcp.languagetools.PathManager getPathManager() {
+            public PathManager getPathManager() {
                 return appContext.getPathManager();
             }
 
             @Override
-            public java.nio.file.Path getDapServerHome() {
+            public Path getDapServerHome() {
                 return serverHome;
             }
 
             @Override
-            public com.redhat.mcp.languagetools.dap.trace.DapTraceCollector getTraceCollector() {
+            public DapTraceCollector getTraceCollector() {
                 return traceCollector;
             }
 
@@ -123,17 +130,17 @@ public class DapSession implements DapEventListener {
             }
 
             @Override
-            public java.net.URI getWorkspaceRoot() {
+            public URI getWorkspaceRoot() {
                 return workspaceContext.getWorkspaceRoot();
             }
 
             @Override
-            public java.nio.file.Path getWorkspaceDataDir() {
+            public Path getWorkspaceDataDir() {
                 return workspaceContext.getWorkspaceDataDir();
             }
         };
 
-        this.dapServer = new com.redhat.mcp.languagetools.dap.server.DapServer(serverConfig, dapContext);
+        this.dapServer = new DapServer(serverConfig, dapContext);
 
         // Register this session as the event listener
         this.dapServer.setEventListener(this);
@@ -149,7 +156,7 @@ public class DapSession implements DapEventListener {
         LOG.infof("Initializing DAP session: %s (%s)", sessionName, sessionId);
 
         // Check if installation is needed
-        com.redhat.mcp.languagetools.installer.ServerInstaller installer = serverConfig.getInstaller();
+        ServerInstaller installer = serverConfig.getInstaller();
 
         if (installer != null) {
             LOG.infof("DAP server has installer, ensuring installation: %s", serverConfig.getId());
@@ -158,16 +165,14 @@ public class DapSession implements DapEventListener {
             traceCollector.addTrace(
                 workspaceContext.getWorkspaceRoot().toString(),
                 sessionId,
-                com.redhat.mcp.languagetools.dap.trace.DapTraceMessage.MessageDirection.SENT,
+                DapTraceMessage.MessageDirection.SENT,
                 "INSTALL: Ensuring " + serverConfig.getName() + " is installed..."
             );
 
             // Create installation context
-            java.nio.file.Path installDir = appContext.getPathManager().getDapServerHome(serverConfig.getId());
-            com.redhat.mcp.languagetools.installer.TraceProgressIndicator progress =
-                new com.redhat.mcp.languagetools.installer.TraceProgressIndicator(serverConfig.getTraceCollector());
-            com.redhat.mcp.languagetools.installer.InstallerContext context =
-                new com.redhat.mcp.languagetools.installer.InstallerContext(serverConfig, installDir, progress);
+            Path installDir = appContext.getPathManager().getDapServerHome(serverConfig.getId());
+            TraceProgressIndicator progress = new TraceProgressIndicator(serverConfig.getTraceCollector());
+            InstallerContext context = new InstallerContext(serverConfig, installDir, progress);
 
             // Run installation
             return installer.ensureInstalled(context)
@@ -183,6 +188,24 @@ public class DapSession implements DapEventListener {
                     }
                 }
                 return startDapServer();
+            })
+            .exceptionally(ex -> {
+                LOG.errorf(ex, "Failed to install DAP server: %s", sessionId);
+                state = SessionState.ERROR;
+
+                // Send error to traces
+                traceCollector.addTrace(
+                    workspaceContext.getWorkspaceRoot().toString(),
+                    sessionId,
+                    DapTraceMessage.MessageDirection.RECEIVED,
+                    "❌ Installation failed: " + ex.getMessage()
+                );
+
+                // Propagate exception
+                if (ex instanceof RuntimeException) {
+                    throw (RuntimeException) ex;
+                }
+                throw new RuntimeException("Failed to install DAP server", ex);
             });
         } else {
             // No installer, just start
@@ -204,7 +227,7 @@ public class DapSession implements DapEventListener {
                 traceCollector.addTrace(
                     workspaceContext.getWorkspaceRoot().toString(),
                     sessionId,
-                    com.redhat.mcp.languagetools.dap.trace.DapTraceMessage.MessageDirection.RECEIVED,
+                    DapTraceMessage.MessageDirection.RECEIVED,
                     "❌ Failed to initialize: " + ex.getMessage()
                 );
 

@@ -100,7 +100,7 @@ public class TaskRegistryInstaller implements ServerInstaller {
                 if (trace != null) {
                     trace.error("Installation cancelled by user");
                 }
-                throw new RuntimeException("Installation cancelled", e);
+                throw new InstallationException("Installation cancelled", e);
             } catch (Exception e) {
                 LOG.errorf(e, "Installation failed for %s", config.getId());
                 status.set(InstallationStatus.FAILED);
@@ -113,7 +113,7 @@ public class TaskRegistryInstaller implements ServerInstaller {
                         trace.error("Cause: " + cause.getMessage());
                     }
                 }
-                throw new RuntimeException("Installation failed: " + e.getMessage(), e);
+                throw new InstallationException("Installation failed: " + e.getMessage(), e);
             }
         });
     }
